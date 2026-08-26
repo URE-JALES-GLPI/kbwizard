@@ -167,6 +167,23 @@ class PluginKbwizardStep extends CommonDBTM {
             }
         }
 
+        // Fallback universal: se critério escolhido não gerou >=2 passos, tenta os outros (evita artigo com PASSO mas critério em hr não quebrar)
+        if (count($chunks) < 2) {
+            if (preg_match('/-{2,3}\s*PASSO\s*-{2,3}/i', $normalizedMarker)) {
+                $try = preg_split('/-{2,3}\s*PASSO\s*-{2,3}/i', $normalizedMarker);
+                if (count($try) >= 2) $chunks = $try;
+            }
+        }
+        if (count($chunks) < 2 && preg_match('/<hr\b[^>]*\/?>/i', $answer)) {
+            $try = preg_split('/<hr\b[^>]*\/?>/i', $answer);
+            if (count($try) >= 2) $chunks = $try;
+        }
+        if (count($chunks) < 2 && preg_match('/<h2[^>]*>/i', $answer)) {
+            $try = preg_split('/(?=<h2[^>]*>)/i', $answer);
+            $try = array_values(array_filter($try, fn($p) => trim((string)$p) !== ''));
+            if (count($try) >= 2) $chunks = $try;
+        }
+
         $chunks = array_values(array_filter($chunks, fn($c) => trim(strip_tags((string)$c, '<br><p><a><ul><ol><li><code><pre><img><strong><em><b><i>')) !== '' || trim((string)$c) !== ''));
         if (count($chunks) <= 1) {
             $title = self::extractTitle($chunks[0] ?? $answer, 0);

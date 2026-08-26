@@ -198,17 +198,17 @@ class PluginKbwizardConfig extends CommonDBTM {
         echo "<label class='form-label'>".__('Critério automático', 'kbwizard')."</label>";
         echo "<select name='auto_delimiter' class='form-select'>";
         $delims = [
-            'hr'     => __('Linha horizontal <hr> (recomendado)', 'kbwizard'),
-            'h2'     => __('Título <h2>', 'kbwizard'),
-            'hr_h2'  => __('<hr> ou <h2> (padrão)', 'kbwizard'),
-            'marker' => __('Marcador ---PASSO--- no texto', 'kbwizard')
+            'hr_h2'  => __('<hr> ou <h2> ou ---PASSO--- (recomendado - detecta todos)', 'kbwizard'),
+            'hr'     => __('Linha horizontal <hr>', 'kbwizard'),
+            'marker' => __('Marcador ---PASSO---', 'kbwizard'),
+            'h2'     => __('Título <h2>', 'kbwizard')
         ];
         foreach ($delims as $k => $v) {
             $sel = ($k === $delimiter) ? 'selected' : '';
             echo "<option value='$k' $sel>$v</option>";
         }
         echo "</select>";
-        echo "<small class='form-hint'>".__('Dica: no editor, insira uma linha horizontal onde cada passo deve terminar. Ou escreva <code>---PASSO---</code> para o modo marcador.', 'kbwizard')." </small>";
+        echo "<small class='form-hint'>".__('Qualquer critério agora tem fallback automático: se não encontrar o separador escolhido, tenta os outros (---PASSO---, &lt;hr&gt;, &lt;h2&gt;). Recomendado: deixe no padrão.', 'kbwizard')." </small>";
         echo "</div>";
 
         // Botão + modal flutuante para editar títulos (evita página grande)

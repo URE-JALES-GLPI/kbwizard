@@ -1,11 +1,11 @@
 <?php
 /**
  * KB Wizard - Passo a Passo para Base de Conhecimento
- * GLPI 11.0.6 - v1.0.17 fix titulos editaveis nao aplicados
+ * GLPI 11.0.6 - v1.0.18 criterio automatico robusto
  */
 
 if (!defined('PLUGIN_KBWIZARD_VERSION')) {
-    define('PLUGIN_KBWIZARD_VERSION', '1.0.17');
+    define('PLUGIN_KBWIZARD_VERSION', '1.0.18');
 }
 if (!defined('PLUGIN_KBWIZARD_MIN_GLPI')) {
     define('PLUGIN_KBWIZARD_MIN_GLPI', '11.0');

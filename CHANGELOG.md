@@ -1,6 +1,11 @@
 # Changelog
 
-## 1.0.17 - 2026-08-26 Fix titulos editaveis nao aplicados — ATUAL
+## 1.0.18 - 2026-08-26 Criterio automatico robusto — ATUAL
+- **Fix**: `inc/step.class.php:170` fallback universal entre `---PASSO---`, `<hr>`, `<h2>` para qualquer `auto_delimiter` escolhido — se critério não gerar >=2 passos, tenta os outros automaticamente. Resolve caso “só funciona em linha horizontal” mesmo com `---PASSO---` nos artigos
+- **UI**: `inc/config.class.php:200` rótulos: `hr_h2` agora `(recomendado - detecta todos)` como primeira opção, `hr` e `marker` sem “(recomendado)” confuso, hint explica fallback
+- **Compat**: `setup.php:8` bump `1.0.17 → 1.0.18`, `composer.json:6` alinhado
+
+## 1.0.17 - 2026-08-26 Fix titulos editaveis nao aplicados
 - **Bug**: `auto_titles` salvos mas não exibidos no wizard porque `fieldExists` cacheado e coluna `auto_titles` ainda não criada (plugin não atualizado via UI). `front/config.php:48` agora cria coluna on-the-fly `ALTER TABLE` se faltar e só inclui `auto_titles` se coluna existe; `inc/step.class.php:58` cria coluna on-the-fly e aplica overrides sem depender de `fieldExists` cache, loga `auto_titles aplicados`
 - **Compat**: `setup.php:8` bump `1.0.16 → 1.0.17`, `composer.json:6` alinhado
 
