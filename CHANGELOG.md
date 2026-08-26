@@ -1,6 +1,10 @@
 # Changelog
 
-## 1.0.16 - 2026-08-26 Titulos em modal flutuante — ATUAL
+## 1.0.17 - 2026-08-26 Fix titulos editaveis nao aplicados — ATUAL
+- **Bug**: `auto_titles` salvos mas não exibidos no wizard porque `fieldExists` cacheado e coluna `auto_titles` ainda não criada (plugin não atualizado via UI). `front/config.php:48` agora cria coluna on-the-fly `ALTER TABLE` se faltar e só inclui `auto_titles` se coluna existe; `inc/step.class.php:58` cria coluna on-the-fly e aplica overrides sem depender de `fieldExists` cache, loga `auto_titles aplicados`
+- **Compat**: `setup.php:8` bump `1.0.16 → 1.0.17`, `composer.json:6` alinhado
+
+## 1.0.16 - 2026-08-26 Titulos em modal flutuante
 - **UX**: `inc/config.class.php:215` títulos saem do card inline e vão para botão `Editar títulos das etapas (N)` + modal flutuante `kbwizard-titles-modal` (overlay fixo, `position:fixed`, `backdrop-filter`, inputs continuam dentro do `<form>`), evita página grande; `inc/config.class.php:307` JS abre/fecha modal (click overlay, `ESC`, `Fechar`), toggle junto com `split_mode`
 - **Compat**: `setup.php:8` bump `1.0.15 → 1.0.16`, `composer.json:6` alinhado
 

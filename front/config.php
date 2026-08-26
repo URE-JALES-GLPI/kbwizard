@@ -45,6 +45,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
     $config = new PluginKbwizardConfig();
     $found = $config->getFromDBByCrit(['knowbaseitems_id' => $knowbaseitems_id]);
 
+    // Garante coluna auto_titles existe (caso update do plugin ainda não rodou)
+    global $DB;
+    if ($DB && $DB->tableExists('glpi_plugin_kbwizard_configs') && !$DB->fieldExists('glpi_plugin_kbwizard_configs', 'auto_titles')) {
+        try {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kbwizard_configs` ADD COLUMN `auto_titles` TEXT DEFAULT NULL");
+            Toolbox::logInFile('kbwizard', 'auto_titles coluna criada on-the-fly em front/config.php');
+        } catch (Throwable $e) {
+            try { Toolbox::logInFile('kbwizard', 'falha ao criar auto_titles: '.$e->getMessage()); } catch(Throwable $e2){}
+        }
+    }
+
     // Títulos editáveis por passo (modo auto) — auto_titles[0], auto_titles[1] ...
     $autoTitlesRaw = $_POST['auto_titles'] ?? [];
     $autoTitlesJson = '';
@@ -61,6 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
         }
     }
 
+    $hasAutoTitles = $DB && $DB->tableExists('glpi_plugin_kbwizard_configs') && $DB->fieldExists('glpi_plugin_kbwizard_configs', 'auto_titles');
     $input = [
         'knowbaseitems_id' => $knowbaseitems_id,
         'is_active' => (int)($_POST['is_active'] ?? 0),
@@ -69,8 +81,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
         'show_progress' => (int)($_POST['show_progress'] ?? 1),
         'allow_jump' => (int)($_POST['allow_jump'] ?? 1),
         'require_sequential' => (int)($_POST['require_sequential'] ?? 0),
-        'auto_titles' => $autoTitlesJson,
     ];
+    if ($hasAutoTitles) $input['auto_titles'] = $autoTitlesJson;
 
     if ($found) {
         $input['id'] = $config->getID();

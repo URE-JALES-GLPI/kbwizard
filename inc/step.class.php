@@ -56,25 +56,37 @@ class PluginKbwizardStep extends CommonDBTM {
         // Modo automático: parseia o answer e aplica títulos editáveis (auto_titles)
         $steps = self::parseAnswerToSteps($answer, $delimiter);
         // Aplica overrides de título editáveis se existirem em glpi_plugin_kbwizard_configs.auto_titles
+        // FIX: não depende só de fieldExists (pode estar cacheado); tenta ler e loga se aplicar
         try {
-            if ($DB && $DB->tableExists('glpi_plugin_kbwizard_configs') && $DB->fieldExists('glpi_plugin_kbwizard_configs', 'auto_titles')) {
+            if ($DB && $DB->tableExists('glpi_plugin_kbwizard_configs')) {
+                // Garante coluna existe (on-the-fly para quem salvou antes da migration)
+                if (!$DB->fieldExists('glpi_plugin_kbwizard_configs', 'auto_titles')) {
+                    try { $DB->doQuery("ALTER TABLE `glpi_plugin_kbwizard_configs` ADD COLUMN `auto_titles` TEXT DEFAULT NULL"); } catch (Throwable $e2) {}
+                }
                 $conf = new PluginKbwizardConfig();
                 if ($conf->getFromDBByCrit(['knowbaseitems_id' => $knowbaseitems_id])) {
                     $raw = $conf->fields['auto_titles'] ?? '';
                     if (!empty($raw)) {
                         $overrides = json_decode($raw, true);
-                        if (is_array($overrides)) {
+                        if (is_array($overrides) && !empty($overrides)) {
+                            $applied = 0;
                             foreach ($steps as $idx => &$st) {
                                 if (isset($overrides[$idx]) && trim((string)$overrides[$idx]) !== '') {
                                     $st['title'] = trim((string)$overrides[$idx]);
+                                    $applied++;
                                 }
                             }
                             unset($st);
+                            if ($applied > 0) {
+                                try { Toolbox::logInFile('kbwizard', "auto_titles aplicados kb=$knowbaseitems_id applied=$applied"); } catch (Throwable $e3) {}
+                            }
                         }
                     }
                 }
             }
-        } catch (Throwable $e) {}
+        } catch (Throwable $e) {
+            try { Toolbox::logInFile('kbwizard', 'getStepsForItem auto_titles erro: '.$e->getMessage()); } catch (Throwable $e2) {}
+        }
         return $steps;
     }
 
