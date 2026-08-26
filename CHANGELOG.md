@@ -1,6 +1,10 @@
 # Changelog
 
-## 1.0.15 - 2026-08-26 Titulos editaveis por passo (auto) — ATUAL
+## 1.0.16 - 2026-08-26 Titulos em modal flutuante — ATUAL
+- **UX**: `inc/config.class.php:215` títulos saem do card inline e vão para botão `Editar títulos das etapas (N)` + modal flutuante `kbwizard-titles-modal` (overlay fixo, `position:fixed`, `backdrop-filter`, inputs continuam dentro do `<form>`), evita página grande; `inc/config.class.php:307` JS abre/fecha modal (click overlay, `ESC`, `Fechar`), toggle junto com `split_mode`
+- **Compat**: `setup.php:8` bump `1.0.15 → 1.0.16`, `composer.json:6` alinhado
+
+## 1.0.15 - 2026-08-26 Titulos editaveis por passo (auto)
 - **Novo**: `hook.php:23` coluna `auto_titles` TEXT (JSON) em `glpi_plugin_kbwizard_configs` + migration `1.0.15`
 - **Admin**: `inc/config.class.php:101` decode `auto_titles`, `inc/config.class.php:215` card “Títulos de cada etapa (editável)” com `input name='auto_titles[idx]'` (placeholder = título automático extraído de `---PASSO---`, valor = personalizado), `inc/config.class.php:277` toggle mostra/esconde junto com delimitador
 - **Save**: `front/config.php:48` sanitiza `auto_titles[]` (trim, 255, só não-vazios) e salva JSON

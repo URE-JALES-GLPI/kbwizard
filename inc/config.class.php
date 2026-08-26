@@ -211,18 +211,32 @@ class PluginKbwizardConfig extends CommonDBTM {
         echo "<small class='form-hint'>".__('Dica: no editor, insira uma linha horizontal onde cada passo deve terminar. Ou escreva <code>---PASSO---</code> para o modo marcador.', 'kbwizard')." </small>";
         echo "</div>";
 
-        // Títulos editáveis por passo (modo auto) - titles puxados de ---PASSO--- ficam editáveis
+        // Botão + modal flutuante para editar títulos (evita página grande)
         if ($splitMode === 'auto' && $countPreview > 0) {
-            echo "<div class='col-12' id='kbwizard_titles_group'>";
-            echo "<div class='card border-0 bg-light p-3 mt-2'>";
-            echo "<label class='form-label mb-1'><i class='ti ti-edit me-1'></i>".__('Títulos de cada etapa (editável)', 'kbwizard')."</label>";
-            echo "<small class='form-hint mb-2 d-block'>".__('Este é o título que hoje é puxado automaticamente do começo da sessão (ex: primeiras palavras ou &lt;h2&gt;). Edite abaixo para personalizar. Deixe vazio para manter o automático.', 'kbwizard')."</small>";
+            $customCount = count(array_filter($autoTitles, fn($v) => trim((string)$v) !== ''));
+            echo "<div class='col-12' id='kbwizard_titles_btn_group'>";
+            echo "<button type='button' id='kbwizard-edit-titles-btn' class='btn btn-outline-primary btn-sm'><i class='ti ti-edit me-1'></i>".sprintf(__('Editar títulos das etapas (%d)', 'kbwizard'), $countPreview)."</button> ";
+            echo "<small class='text-muted ms-2'>".__('Abre painel flutuante — não aumenta a página', 'kbwizard')."</small>";
+            if ($customCount > 0) {
+                echo "<span class='badge bg-success ms-2'><i class='ti ti-check me-1'></i>".$customCount." ".__('personalizados', 'kbwizard')."</span>";
+            }
+            echo "</div>";
+
+            // Modal flutuante (dentro do form, overlay fixo) — inputs continuam no form e são enviados no Salvar
+            echo "<div id='kbwizard-titles-modal' style='display:none; position:fixed; inset:0; background:rgba(15,23,42,0.55); backdrop-filter:blur(3px); z-index:1060; align-items:center; justify-content:center; padding:16px'>";
+            echo "<div style='background:#fff; border-radius:12px; max-width:800px; width:100%; max-height:92vh; display:flex; flex-direction:column; box-shadow:0 24px 64px rgba(0,0,0,.35)'>";
+            echo "<div style='padding:16px 18px; border-bottom:1px solid #e6e8eb; display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border-radius:12px 12px 0 0'>";
+            echo "<h5 class='mb-0'><i class='ti ti-edit me-2'></i>".__('Editar títulos das etapas', 'kbwizard')." <small class='text-muted'>$countPreview ".__('passos', 'kbwizard')."</small></h5>";
+            echo "<button type='button' id='kbwizard-titles-close' class='btn btn-sm btn-ghost' aria-label='".__('Fechar', 'kbwizard')."'><i class='ti ti-x'></i></button>";
+            echo "</div>";
+            echo "<div style='padding:16px; overflow-y:auto; flex:1'>";
+            echo "<small class='text-muted d-block mb-3'>".__('Edite o título que hoje é puxado automaticamente do começo da sessão (ex: primeiras palavras ou &lt;h2&gt;). Deixe vazio para manter o automático.', 'kbwizard')."</small>";
             foreach ($rawPreviewSteps as $idx => $s) {
                 $num = $idx + 1;
                 $autoTitle = $s['title'] ?? '';
                 $custom = $autoTitles[$idx] ?? '';
                 $excerpt = mb_strimwidth(strip_tags($s['content'] ?? ''), 0, 80, '...');
-                echo "<div class='mb-2'>";
+                echo "<div class='mb-3'>";
                 echo "<label class='form-label small mb-1'>".sprintf(__('Passo %d', 'kbwizard'), $num)." <span class='text-muted'>— ".htmlspecialchars($excerpt, ENT_QUOTES, 'UTF-8')."</span></label>";
                 echo "<div class='input-group input-group-sm'>";
                 echo "<span class='input-group-text' style='min-width:42px'>#$num</span>";
@@ -230,13 +244,23 @@ class PluginKbwizardConfig extends CommonDBTM {
                 echo "</div>";
                 if (!empty($custom)) {
                     echo "<small class='text-success' style='font-size:11px'><i class='ti ti-check me-1'></i>".__('Título personalizado', 'kbwizard')." — ".__('automático', 'kbwizard').": \"".htmlspecialchars($autoTitle, ENT_QUOTES, 'UTF-8')."\"</small>";
+                } else {
+                    echo "<small class='text-muted' style='font-size:11px'>".__('Automático', 'kbwizard').": \"".htmlspecialchars($autoTitle, ENT_QUOTES, 'UTF-8')."\"</small>";
                 }
                 echo "</div>";
             }
             echo "</div>";
+            echo "<div style='padding:14px 18px; border-top:1px solid #e6e8eb; background:#f8fafc; border-radius:0 0 12px 12px; display:flex; justify-content:space-between; align-items:center'>";
+            echo "<button type='button' id='kbwizard-titles-cancel' class='btn btn-outline-secondary'>".__('Fechar', 'kbwizard')."</button>";
+            echo "<button type='submit' name='save_config' class='btn btn-primary'><i class='ti ti-device-floppy me-1'></i>".__('Salvar títulos', 'kbwizard')."</button>";
+            echo "</div>";
+            echo "</div>";
             echo "</div>";
         } elseif ($splitMode === 'auto' && $countPreview === 0) {
-            echo "<div class='col-12' id='kbwizard_titles_group' style='display:none'></div>";
+            echo "<div class='col-12' id='kbwizard_titles_btn_group' style='display:none'></div>";
+            echo "<div id='kbwizard-titles-modal' style='display:none'></div>";
+        } else {
+            echo "<div id='kbwizard-titles-modal' style='display:none'></div>";
         }
 
         echo "</div>"; // row
@@ -280,21 +304,43 @@ class PluginKbwizardConfig extends CommonDBTM {
             echo "</div></div></div>";
         }
 
-        // JS toggle - sem optional chaining para compatibilidade GLPI loader (evita erro em browsers antigos da base)
+        // JS: toggle delimitador + botão de títulos + modal flutuante (sem optional chaining)
         echo Html::scriptBlock("
             (function(){
                 var sel = document.getElementById('kbwizard_split_mode');
                 var grp = document.getElementById('kbwizard_delimiter_group');
-                var titles = document.getElementById('kbwizard_titles_group');
+                var btnGroup = document.getElementById('kbwizard_titles_btn_group');
+                var modal = document.getElementById('kbwizard-titles-modal');
+                var editBtn = document.getElementById('kbwizard-edit-titles-btn');
+                var closeBtn = document.getElementById('kbwizard-titles-close');
+                var cancelBtn = document.getElementById('kbwizard-titles-cancel');
+                function openModal(){
+                    if(!modal) return;
+                    modal.style.display='flex';
+                    document.body.style.overflow='hidden';
+                    var first = modal.querySelector('input');
+                    if(first) try{ first.focus(); }catch(e){}
+                }
+                function closeModal(){
+                    if(!modal) return;
+                    modal.style.display='none';
+                    document.body.style.overflow='';
+                }
+                if(editBtn) editBtn.addEventListener('click', openModal);
+                if(closeBtn) closeBtn.addEventListener('click', closeModal);
+                if(cancelBtn) cancelBtn.addEventListener('click', closeModal);
+                if(modal) modal.addEventListener('click', function(e){ if(e.target===modal) closeModal(); });
+                document.addEventListener('keydown', function(e){ if(e.key==='Escape' && modal && modal.style.display!=='none') closeModal(); });
                 if(sel && grp){
                     sel.addEventListener('change', function(e){
                         var isManual = (e.target.value === 'manual');
                         grp.style.display = isManual ? 'none' : 'block';
-                        if(titles) titles.style.display = isManual ? 'none' : 'block';
+                        if(btnGroup) btnGroup.style.display = isManual ? 'none' : 'block';
+                        if(isManual && modal) closeModal();
                     });
                     if(sel.value === 'manual'){
                         grp.style.display='none';
-                        if(titles) titles.style.display='none';
+                        if(btnGroup) btnGroup.style.display='none';
                     }
                 }
             })();
