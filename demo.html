@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>KB Wizard - Demo Passo a Passo (preview sem GLPI)</title>
+<link rel="stylesheet" href="css/kbwizard.css">
+<style>
+body{font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#f1f5f9; margin:0; padding:24px;}
+.demo-article{max-width:800px;margin:0 auto;background:#fff;padding:28px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.08)}
+.demo-article h1{margin-top:0;color:#0f172a}
+.demo-article hr{margin:24px 0;border:none;border-top:2px dashed #e2e8f0}
+</style>
+</head>
+<body>
+
+<div class="demo-article">
+  <h1>Exemplo: Como configurar impressora no Windows 11</h1>
+  <p class="text-muted">Este é o conteúdo original do artigo (como o técnico veria sem o wizard). Clique no botão azul para ver o modo passo a passo.</p>
+
+  <!-- Dados simulados como o GLPI injeta -->
+  <div id="kbwizard-data"
+       data-kb-id="123"
+       data-current="0"
+       data-allow-jump="1"
+       data-show-progress="1"
+       data-steps='[{"title":"Passo 1 - Abrir Configurações","content":"<p><strong>Abra o Menu Iniciar</strong> e clique em <em>Configurações</em> (ícone de engrenagem).</p><p><img src=\"https://via.placeholder.com/600x200?text=Print+Configurações\" style=\"max-width:100%\"></p><p>Dica: atalho <code>Win + I</code>.</p>"},{"title":"Acessar Bluetooth e dispositivos","content":"<p>No menu lateral clique em <strong>Bluetooth e dispositivos</strong> &gt; <strong>Impressoras e scanners</strong>.</p><ul><li>Verifique se a impressora está na mesma rede</li><li>Se for USB, conecte o cabo antes</li></ul>"},{"title":"Adicionar impressora","content":"<p>Clique em <strong>Adicionar dispositivo</strong> e aguarde a busca.</p><p>Se aparecer, clique em <em>Adicionar dispositivo</em>. Se não, clique em <em>Adicionar manualmente</em> &gt; <em>Minha impressora não está na lista</em>.</p><pre>Exemplo IP: 10.1.0.50</pre>"},{"title":"Testar impressão","content":"<p>Clique na impressora instalada &gt; <strong>Imprimir página de teste</strong>.</p><p>Se sair com falhas, execute <em>Solucionar problemas</em>.</p>"},{"title":"Concluir e documentar","content":"<p>Anote o IP e o nome da impressora no chamado.</p><p><strong>Checklist final:</strong></p><ul><li>✅ Página de teste ok</li><li>✅ Definida como padrão (se solicitado)</li><li>✅ Usuário testou</li></ul>"}]'
+       style="display:none"></div>
+
+  <div id="kbwizard-banner" class="card border-primary mb-3 shadow-sm" style="border:1px solid #206bc4;border-left:4px solid #206bc4;background:#fff;padding:16px;border-radius:12px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <div style="background:#206bc4;color:#fff;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px">☰</div>
+      <div>
+        <h4 style="margin:0">Guia Passo a Passo</h4>
+        <small style="color:#64748b">Este artigo tem 5 passos. Siga no seu ritmo sem se perder!</small>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button id="kbwizard-start-btn" style="background:#206bc4;color:#fff;border:none;padding:12px 20px;border-radius:8px;font-weight:600;cursor:pointer">▶ Iniciar Passo a Passo</button>
+      <button id="kbwizard-toggle-original" style="background:#fff;color:#475569;border:1px solid #cbd5e1;padding:12px 16px;border-radius:8px;cursor:pointer">Ver artigo completo</button>
+    </div>
+  </div>
+
+  <div class="knowbaseitem-answer" style="color:#334155;line-height:1.7">
+    <h2>Passo 1 - Abrir Configurações</h2>
+    <p><strong>Abra o Menu Iniciar</strong> e clique em <em>Configurações</em>...</p>
+    <hr>
+    <h2>Passo 2 - Bluetooth e dispositivos</h2>
+    <p>No menu lateral clique em <strong>Bluetooth e dispositivos</strong>...</p>
+    <hr>
+    <h2>Passo 3 - Adicionar impressora</h2>
+    <p>Clique em <strong>Adicionar dispositivo</strong>...</p>
+    <hr>
+    <h2>Passo 4 - Testar</h2>
+    <p>Clique na impressora &gt; <strong>Imprimir página de teste</strong>...</p>
+    <hr>
+    <h2>Passo 5 - Concluir</h2>
+    <p>Anote o IP e finalize o chamado...</p>
+  </div>
+</div>
+
+<!-- Overlay copiado do template -->
+<div id="kbwizard-overlay" style="display:none">
+  <div id="kbwizard-modal" role="dialog" aria-modal="true">
+    <div class="kbwizard-header">
+      <div class="kbwizard-header-left">
+        <span class="kbwizard-badge">Como configurar impressora no Windows 11</span>
+        <span id="kbwizard-step-counter" class="kbwizard-counter">1 / 5</span>
+      </div>
+      <div class="kbwizard-header-right">
+        <button id="kbwizard-minimize" class="btn-ghost" title="Minimizar">—</button>
+        <button id="kbwizard-close" class="btn-ghost" title="Fechar">✕</button>
+      </div>
+    </div>
+    <div class="kbwizard-progress-wrap">
+      <div class="kbwizard-progress-bar"><div id="kbwizard-progress-fill"></div></div>
+      <span id="kbwizard-progress-text" class="kbwizard-progress-text">0%</span>
+    </div>
+    <div class="kbwizard-body">
+      <aside class="kbwizard-sidebar" id="kbwizard-sidebar">
+        <div class="kbwizard-sidebar-title">Passos</div>
+        <ol id="kbwizard-step-list" class="kbwizard-step-list"></ol>
+      </aside>
+      <main class="kbwizard-main">
+        <h2 id="kbwizard-step-title" class="kbwizard-step-title"></h2>
+        <div id="kbwizard-step-content" class="kbwizard-step-content"></div>
+        <div id="kbwizard-step-feedback" class="kbwizard-feedback" style="display:none"></div>
+      </main>
+    </div>
+    <div class="kbwizard-footer">
+      <button id="kbwizard-prev" class="btn" style="border:1px solid #cbd5e1;background:#fff;padding:8px 16px;border-radius:8px;cursor:pointer">← Anterior</button>
+      <div class="kbwizard-footer-center"><button id="kbwizard-exit" class="btn-ghost">Sair</button></div>
+      <button id="kbwizard-next" class="btn" style="background:#206bc4;color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer">Próximo →</button>
+      <button id="kbwizard-finish" class="btn" style="background:#22c55e;color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;display:none">✓ Concluir</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/kbwizard.js"></script>
+<script>
+// Demo: desativa saveProgress (sem backend GLPI)
+if (window.KBWizard) {
+  const origSave = KBWizard.saveProgress;
+  KBWizard.saveProgress = function(){ console.log('[demo] progresso salvo localmente', arguments); localStorage.setItem('kbwizard_demo_step', document.getElementById('kbwizard-data')?.dataset.current || 0); };
+  //Também desativa fetch CSRF
+  console.log('KB Wizard demo carregado - clique em Iniciar Passo a Passo');
+}
+</script>
+</body>
+</html>
