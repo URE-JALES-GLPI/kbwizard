@@ -1,6 +1,10 @@
 # Changelog
 
-## 1.0.20 - 2026-08-26 Responsivo tablet/mobile — ATUAL
+## 1.0.21 - 2026-08-26 Fix corte tablet — ATUAL
+- **Fix**: `css/kbwizard.css:340` tablet `768px` overlay agora `align-items:flex-start` + `overflow-y:auto` e modal `calc(100dvh - 16px)` com `margin:auto 0`, `header/progress/footer` `flex-shrink:0`, `body` flex, sidebar `120px` — botão fechar e header não cortam mais; `480px` ajustado para `dvh` e `42vw` badge
+- **Compat**: `setup.php:8` bump `1.0.20 → 1.0.21`, `composer.json:6` alinhado
+
+## 1.0.20 - 2026-08-26 Responsivo tablet/mobile
 - **Fix**: `css/kbwizard.css:331` reescrita responsiva: `@media (max-width:1024px)` modal `96vw` + sidebar `220px`, `@media (max-width:768px)` overlay `8px` + `env(safe-area)`, modal `96vh`, sidebar horizontal com `scroll-snap` + `touch`, header/footer `44px` touch, banner empilha e botões `flex:1`, `@media (max-width:480px)` fontes e paddings reduzidos — proporções corrigidas em tablet
 - **Compat**: `setup.php:8` bump `1.0.19 → 1.0.20`, `composer.json:6` alinhado
 
