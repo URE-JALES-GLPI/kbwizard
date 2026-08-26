@@ -1,6 +1,11 @@
 # Changelog
 
-## 1.0.18 - 2026-08-26 Criterio automatico robusto — ATUAL
+## 1.0.19 - 2026-08-26 Criterio apenas marcador — ATUAL
+- **Simplificação**: `inc/config.class.php:196` campo “Critério automático” agora só exibe `Marcador ---PASSO---` (hidden `auto_delimiter=marker` + badge ativo), `hook.php:20` default `marker`, `front/config.php:80` força `marker`, `inc/config.class.php:98` default `marker` — página mais limpa, sem confusão entre `hr`/`h2`/`hr_h2`
+- **Compat**: `hook.php:128` migration `1.0.19` normaliza `auto_delimiter` existentes para `marker` e garante `auto_titles`; fallback universal em `inc/step.class.php:170` mantém compatibilidade com artigos antigos em `<hr>`/`<h2>`
+- **Compat**: `setup.php:8` bump `1.0.18 → 1.0.19`, `composer.json:6` alinhado
+
+## 1.0.18 - 2026-08-26 Criterio automatico robusto
 - **Fix**: `inc/step.class.php:170` fallback universal entre `---PASSO---`, `<hr>`, `<h2>` para qualquer `auto_delimiter` escolhido — se critério não gerar >=2 passos, tenta os outros automaticamente. Resolve caso “só funciona em linha horizontal” mesmo com `---PASSO---` nos artigos
 - **UI**: `inc/config.class.php:200` rótulos: `hr_h2` agora `(recomendado - detecta todos)` como primeira opção, `hr` e `marker` sem “(recomendado)” confuso, hint explica fallback
 - **Compat**: `setup.php:8` bump `1.0.17 → 1.0.18`, `composer.json:6` alinhado

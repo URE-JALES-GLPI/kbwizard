@@ -17,7 +17,7 @@ function plugin_kbwizard_install() {
             `knowbaseitems_id` int unsigned NOT NULL,
             `is_active` tinyint(1) NOT NULL DEFAULT 0,
             `split_mode` varchar(20) NOT NULL DEFAULT 'auto',
-            `auto_delimiter` varchar(20) NOT NULL DEFAULT 'hr_h2',
+            `auto_delimiter` varchar(20) NOT NULL DEFAULT 'marker',
             `show_progress` tinyint(1) NOT NULL DEFAULT 1,
             `allow_jump` tinyint(1) NOT NULL DEFAULT 1,
             `require_sequential` tinyint(1) NOT NULL DEFAULT 0,
@@ -132,6 +132,22 @@ function plugin_kbwizard_update($current_version) {
             $migration->addField($table, 'auto_titles', 'text');
             $migration->migrationOneTable($table);
             Toolbox::logInFile('kbwizard', "KB Wizard atualizado para 1.0.15 - coluna auto_titles adicionada\n");
+        }
+    }
+
+    // Atualização para 1.0.19 - critério apenas marcador ---PASSO---
+    if (version_compare($current_version, '1.0.19', '<')) {
+        $table = 'glpi_plugin_kbwizard_configs';
+        if ($DB->tableExists($table)) {
+            if (!$DB->fieldExists($table, 'auto_titles')) {
+                $migration->addField($table, 'auto_titles', 'text');
+                $migration->migrationOneTable($table);
+            }
+            // Normaliza delimiter existente para marker (fallback universal já cobre antigos)
+            try {
+                $DB->doQuery("UPDATE `$table` SET `auto_delimiter`='marker' WHERE `auto_delimiter`!='marker'");
+            } catch (Throwable $e) {}
+            Toolbox::logInFile('kbwizard', "KB Wizard atualizado para 1.0.19 - auto_delimiter normalizado para marker\n");
         }
     }
 

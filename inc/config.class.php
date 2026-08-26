@@ -69,7 +69,7 @@ class PluginKbwizardConfig extends CommonDBTM {
                     'knowbaseitems_id' => $id,
                     'is_active' => 0,
                     'split_mode' => 'auto',
-                    'auto_delimiter' => 'hr_h2',
+                    'auto_delimiter' => 'marker',
                     'show_progress' => 1,
                     'allow_jump' => 1,
                     'require_sequential' => 0,
@@ -95,7 +95,7 @@ class PluginKbwizardConfig extends CommonDBTM {
         $id = $kb->getID();
         $isActive = (int)($config->fields['is_active'] ?? 0);
         $splitMode = $config->fields['split_mode'] ?? 'auto';
-        $delimiter = $config->fields['auto_delimiter'] ?? 'hr_h2';
+        $delimiter = $config->fields['auto_delimiter'] ?? 'marker';
         $showProgress = (int)($config->fields['show_progress'] ?? 1);
         $allowJump = (int)($config->fields['allow_jump'] ?? 1);
         $requireSeq = (int)($config->fields['require_sequential'] ?? 0);
@@ -193,22 +193,12 @@ class PluginKbwizardConfig extends CommonDBTM {
         echo "</select>";
         echo "</div>";
 
-        // Delimitador auto
+        // Delimitador auto - simplificado: apenas marcador ---PASSO---
         echo "<div class='col-md-6' id='kbwizard_delimiter_group'>";
         echo "<label class='form-label'>".__('Critério automático', 'kbwizard')."</label>";
-        echo "<select name='auto_delimiter' class='form-select'>";
-        $delims = [
-            'hr_h2'  => __('<hr> ou <h2> ou ---PASSO--- (recomendado - detecta todos)', 'kbwizard'),
-            'hr'     => __('Linha horizontal <hr>', 'kbwizard'),
-            'marker' => __('Marcador ---PASSO---', 'kbwizard'),
-            'h2'     => __('Título <h2>', 'kbwizard')
-        ];
-        foreach ($delims as $k => $v) {
-            $sel = ($k === $delimiter) ? 'selected' : '';
-            echo "<option value='$k' $sel>$v</option>";
-        }
-        echo "</select>";
-        echo "<small class='form-hint'>".__('Qualquer critério agora tem fallback automático: se não encontrar o separador escolhido, tenta os outros (---PASSO---, &lt;hr&gt;, &lt;h2&gt;). Recomendado: deixe no padrão.', 'kbwizard')." </small>";
+        echo "<input type='hidden' name='auto_delimiter' value='marker'>";
+        echo "<div class='form-control bg-light' style='font-weight:600'><i class='ti ti-cut me-1'></i> ".__('Marcador ---PASSO---', 'kbwizard')." <span class='badge bg-success ms-2'>".__('ativo', 'kbwizard')."</span></div>";
+        echo "<small class='form-hint'>".__('Cada <code>---PASSO---</code> em uma linha vira um novo passo. Compatível com fallback de &lt;hr&gt;/&lt;h2&gt; antigos.', 'kbwizard')." </small>";
         echo "</div>";
 
         // Botão + modal flutuante para editar títulos (evita página grande)

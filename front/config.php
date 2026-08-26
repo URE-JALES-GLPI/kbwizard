@@ -77,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
         'knowbaseitems_id' => $knowbaseitems_id,
         'is_active' => (int)($_POST['is_active'] ?? 0),
         'split_mode' => ($_POST['split_mode'] ?? 'auto') === 'manual' ? 'manual' : 'auto',
-        'auto_delimiter' => in_array($_POST['auto_delimiter'] ?? '', ['hr','h2','hr_h2','marker'], true) ? $_POST['auto_delimiter'] : 'hr_h2',
+        'auto_delimiter' => 'marker',
         'show_progress' => (int)($_POST['show_progress'] ?? 1),
         'allow_jump' => (int)($_POST['allow_jump'] ?? 1),
         'require_sequential' => (int)($_POST['require_sequential'] ?? 0),
