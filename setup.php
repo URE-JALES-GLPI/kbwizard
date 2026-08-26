@@ -1,11 +1,11 @@
 <?php
 /**
  * KB Wizard - Passo a Passo para Base de Conhecimento
- * GLPI 11.0.6 - v1.0.19 criterio apenas marcador
+ * GLPI 11.0.6 - v1.0.20 responsivo tablet/mobile
  */
 
 if (!defined('PLUGIN_KBWIZARD_VERSION')) {
-    define('PLUGIN_KBWIZARD_VERSION', '1.0.19');
+    define('PLUGIN_KBWIZARD_VERSION', '1.0.20');
 }
 if (!defined('PLUGIN_KBWIZARD_MIN_GLPI')) {
     define('PLUGIN_KBWIZARD_MIN_GLPI', '11.0');

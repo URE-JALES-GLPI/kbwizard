@@ -1,6 +1,10 @@
 # Changelog
 
-## 1.0.19 - 2026-08-26 Criterio apenas marcador — ATUAL
+## 1.0.20 - 2026-08-26 Responsivo tablet/mobile — ATUAL
+- **Fix**: `css/kbwizard.css:331` reescrita responsiva: `@media (max-width:1024px)` modal `96vw` + sidebar `220px`, `@media (max-width:768px)` overlay `8px` + `env(safe-area)`, modal `96vh`, sidebar horizontal com `scroll-snap` + `touch`, header/footer `44px` touch, banner empilha e botões `flex:1`, `@media (max-width:480px)` fontes e paddings reduzidos — proporções corrigidas em tablet
+- **Compat**: `setup.php:8` bump `1.0.19 → 1.0.20`, `composer.json:6` alinhado
+
+## 1.0.19 - 2026-08-26 Criterio apenas marcador
 - **Simplificação**: `inc/config.class.php:196` campo “Critério automático” agora só exibe `Marcador ---PASSO---` (hidden `auto_delimiter=marker` + badge ativo), `hook.php:20` default `marker`, `front/config.php:80` força `marker`, `inc/config.class.php:98` default `marker` — página mais limpa, sem confusão entre `hr`/`h2`/`hr_h2`
 - **Compat**: `hook.php:128` migration `1.0.19` normaliza `auto_delimiter` existentes para `marker` e garante `auto_titles`; fallback universal em `inc/step.class.php:170` mantém compatibilidade com artigos antigos em `<hr>`/`<h2>`
 - **Compat**: `setup.php:8` bump `1.0.18 → 1.0.19`, `composer.json:6` alinhado
