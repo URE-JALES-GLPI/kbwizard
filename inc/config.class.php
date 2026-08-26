@@ -122,7 +122,7 @@ class PluginKbwizardConfig extends CommonDBTM {
 
         echo "<div class='row g-3'>";
         // Ativar
-        echo "<div class='col-md-6'>";
+        echo "<div class='col-md-3'>";
         echo "<label class='form-check form-switch'>";
         echo "<input type='hidden' name='is_active' value='0'>";
         echo "<input class='form-check-input' type='checkbox' name='is_active' value='1' ".($isActive ? 'checked' : '').">";
@@ -148,6 +148,16 @@ class PluginKbwizardConfig extends CommonDBTM {
         echo "<span class='form-check-label'>".__('Permitir navegar livremente', 'kbwizard')."</span>";
         echo "</label>";
         echo "<small class='form-hint'>".__('Se desativo, o leitor só avança sequencialmente.', 'kbwizard')."</small>";
+        echo "</div>";
+
+        // Exigir sequencial
+        echo "<div class='col-md-3'>";
+        echo "<label class='form-check form-switch'>";
+        echo "<input type='hidden' name='require_sequential' value='0'>";
+        echo "<input class='form-check-input' type='checkbox' name='require_sequential' value='1' ".($requireSeq ? 'checked' : '').">";
+        echo "<span class='form-check-label'>".__('Exigir ordem sequencial', 'kbwizard')."</span>";
+        echo "</label>";
+        echo "<small class='form-hint'>".__('Se ativo, só libera o próximo passo após ver o atual.', 'kbwizard')."</small>";
         echo "</div>";
 
         // Modo de divisão

@@ -1,11 +1,11 @@
 <?php
 /**
  * KB Wizard - Passo a Passo para Base de Conhecimento
- * GLPI 11.0.6 - v1.0.8 MODO NORMAL (sem FORCE, com INLINE CSS/JS fix 404)
+ * GLPI 11.0.6 - v1.0.14 polished (focus trap, ARIA, require_sequential fix, reduced-motion)
  */
 
 if (!defined('PLUGIN_KBWIZARD_VERSION')) {
-    define('PLUGIN_KBWIZARD_VERSION', '1.0.13');
+    define('PLUGIN_KBWIZARD_VERSION', '1.0.14');
 }
 if (!defined('PLUGIN_KBWIZARD_MIN_GLPI')) {
     define('PLUGIN_KBWIZARD_MIN_GLPI', '11.0');

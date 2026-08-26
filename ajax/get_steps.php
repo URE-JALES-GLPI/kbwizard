@@ -87,6 +87,7 @@ try {
         'current' => $current,
         'allow_jump' => (int)($config->fields['allow_jump'] ?? 1),
         'show_progress' => (int)($config->fields['show_progress'] ?? 1),
+        'require_sequential' => (int)($config->fields['require_sequential'] ?? 0),
         'total' => count($steps)
     ]);
 } catch (Throwable $e) {

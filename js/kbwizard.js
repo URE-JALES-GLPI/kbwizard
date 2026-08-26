@@ -1,6 +1,6 @@
 /**
- * KB Wizard - Lógica do Passo a Passo - FIX 1.0.1
- * Corrige carregamento infinito: sem MutationObserver pesado, init defensivo
+ * KB Wizard - Lógica do Passo a Passo - v1.0.14 polished
+ * Fix: require_sequential, focus trap, aria, reduced-motion, finish UX
  */
 var KBWizard = (function () {
   'use strict';
@@ -10,6 +10,7 @@ var KBWizard = (function () {
   var total = 0;
   var kbId = 0;
   var allowJump = true;
+  var requireSequential = false;
   var showProgress = true;
   var overlay = null;
   var progressFill = null;
@@ -19,21 +20,44 @@ var KBWizard = (function () {
   var stepContent = null;
   var stepList = null;
   var nextBtn = null, prevBtn = null, finishBtn = null, exitBtn = null;
+  var liveRegion = null;
   var _inited = false;
   var _bound = false;
+  var previouslyFocused = null;
+  var _navLock = false;
 
   function qs(sel, ctx) { return (ctx || document).querySelector(sel); }
   function qsa(sel, ctx) { return Array.from((ctx || document).querySelectorAll(sel)); }
 
+  function isReducedMotion() {
+    try { return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch(e){ return false; }
+  }
+
   function log() {
     try { console.log.apply(console, ['[KBWizard]'].concat([].slice.call(arguments))); } catch(e){}
+  }
+
+  function announce(msg) {
+    if (!liveRegion) {
+      liveRegion = qs('#kbwizard-live');
+      if (!liveRegion) {
+        liveRegion = document.createElement('div');
+        liveRegion.id = 'kbwizard-live';
+        liveRegion.setAttribute('aria-live', 'polite');
+        liveRegion.setAttribute('aria-atomic', 'true');
+        liveRegion.className = 'visually-hidden';
+        liveRegion.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;';
+        document.body.appendChild(liveRegion);
+      }
+    }
+    liveRegion.textContent = '';
+    setTimeout(function(){ liveRegion.textContent = msg; }, 60);
   }
 
   function init() {
     if (_inited) return;
     var dataEl = qs('#kbwizard-data');
     if (!dataEl) {
-      // Não é artigo com wizard, silencioso
       return;
     }
     try {
@@ -58,6 +82,7 @@ var KBWizard = (function () {
     if (current >= total) current = total - 1;
     allowJump = dataEl.getAttribute('data-allow-jump') === '1';
     showProgress = dataEl.getAttribute('data-show-progress') === '1';
+    requireSequential = dataEl.getAttribute('data-require-seq') === '1';
 
     overlay = qs('#kbwizard-overlay');
     progressFill = qs('#kbwizard-progress-fill');
@@ -76,13 +101,23 @@ var KBWizard = (function () {
       return;
     }
 
+    // Ensure modal has proper aria
+    var modal = qs('#kbwizard-modal');
+    if (modal) {
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-modal', 'true');
+      if (stepTitle) modal.setAttribute('aria-labelledby', 'kbwizard-step-title');
+    }
+
     if (!_bound) {
       bindEvents();
       _bound = true;
     }
     renderSidebar();
+    // Ensure live region exists early
+    announce('');
     _inited = true;
-    log('init ok', {kbId: kbId, total: total, current: current});
+    log('init ok', {kbId: kbId, total: total, current: current, allowJump: allowJump, requireSequential: requireSequential});
   }
 
   function bindEvents() {
@@ -99,9 +134,10 @@ var KBWizard = (function () {
       toggleOriginalBtn.addEventListener('click', function () {
         var ans = findAnswerContainer();
         if (ans) {
-          ans.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          var behavior = isReducedMotion() ? 'auto' : 'smooth';
+          try { ans.scrollIntoView({ behavior: behavior, block: 'start' }); } catch(e){ ans.scrollIntoView(); }
           var oldBg = ans.style.background;
-          ans.style.transition = 'background .6s';
+          ans.style.transition = isReducedMotion() ? 'none' : 'background .6s';
           ans.style.background = '#fef9c3';
           setTimeout(function(){ ans.style.background = oldBg; }, 1200);
         }
@@ -111,17 +147,42 @@ var KBWizard = (function () {
     if (prevBtn) prevBtn.addEventListener('click', prev);
     if (finishBtn) finishBtn.addEventListener('click', finish);
 
-    document.addEventListener('keydown', function (e) {
-      if (!overlay || overlay.style.display === 'none') return;
-      if (e.key === 'Escape') close();
-      if (e.key === 'ArrowRight') next();
-      if (e.key === 'ArrowLeft') prev();
-    });
-
+    document.addEventListener('keydown', onKeyDown);
     if (overlay) {
       overlay.addEventListener('click', function (e) {
         if (e.target === overlay) close();
       });
+    }
+  }
+
+  function onKeyDown(e) {
+    if (!overlay || overlay.style.display === 'none') return;
+    if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); next(); return; }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); prev(); return; }
+    if (e.key === 'Home') { e.preventDefault(); goTo(0); return; }
+    if (e.key === 'End') { e.preventDefault(); goTo(total - 1); return; }
+    // Focus trap: Tab
+    if (e.key === 'Tab') trapTab(e);
+  }
+
+  function getFocusable() {
+    if (!overlay) return [];
+    var sel = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    var nodes = qsa(sel, overlay);
+    // filter visible
+    return nodes.filter(function(el){ return el.offsetParent !== null || el === document.activeElement; });
+  }
+
+  function trapTab(e) {
+    var focusable = getFocusable();
+    if (focusable.length === 0) { e.preventDefault(); return; }
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
   }
 
@@ -138,28 +199,46 @@ var KBWizard = (function () {
     return cands[0] || null;
   }
 
+  function canGoTo(idx) {
+    if (idx < 0 || idx >= total) return false;
+    if (requireSequential) {
+      // só pode avançar 1 por vez, mas pode voltar livremente
+      if (idx > current + 1) return false;
+    }
+    if (!allowJump && !requireSequential) {
+      if (idx > current) return false;
+    }
+    return true;
+  }
+
   function renderSidebar() {
     if (!stepList) return;
     stepList.innerHTML = '';
+    stepList.setAttribute('role', 'list');
     for (var idx=0; idx<steps.length; idx++) {
       (function(s, i){
         var li = document.createElement('li');
+        li.setAttribute('role', 'listitem');
         li.setAttribute('data-idx', i);
+        li.setAttribute('tabindex', canGoTo(i) ? '0' : '-1');
+        li.setAttribute('aria-current', i === current ? 'step' : 'false');
         if (i === current) li.classList.add('active');
         if (i < current) li.classList.add('completed');
-        li.innerHTML = '<span class="kbwizard-step-num">' + (i + 1) + '</span><span class="kbwizard-step-label">' + escapeHtml(s.title) + '</span>';
-        if (allowJump) {
-          li.addEventListener('click', function(){ goTo(i); });
-          li.title = 'Ir para passo ' + (i + 1);
-          li.style.cursor = 'pointer';
+        var disabled = !canGoTo(i);
+        if (disabled) li.classList.add('disabled');
+        li.innerHTML = '<span class="kbwizard-step-num" aria-hidden="true">' + (i + 1) + '</span><span class="kbwizard-step-label">' + escapeHtml(s.title) + '</span>';
+        if (disabled) {
+          li.style.opacity = '0.55';
+          li.style.cursor = 'not-allowed';
+          li.setAttribute('aria-disabled', 'true');
+          li.title = requireSequential ? 'Conclua o passo atual para avançar' : 'Navegação sequencial';
         } else {
-          if (i > current) {
-            li.style.opacity = '0.55';
-            li.style.cursor = 'not-allowed';
-          } else {
-            li.addEventListener('click', function(){ goTo(i); });
-            li.style.cursor = 'pointer';
-          }
+          li.title = 'Ir para passo ' + (i + 1) + (i === current ? ' (atual)' : '');
+          li.style.cursor = 'pointer';
+          li.addEventListener('click', function(){ goTo(i); });
+          li.addEventListener('keydown', function(e){
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goTo(i); }
+          });
         }
         stepList.appendChild(li);
       })(steps[idx], idx);
@@ -169,10 +248,12 @@ var KBWizard = (function () {
   function renderStep() {
     if (!steps[current]) return;
     var s = steps[current];
-    if (stepTitle) stepTitle.textContent = s.title || ('Passo ' + (current + 1));
+    if (stepTitle) {
+      stepTitle.textContent = s.title || ('Passo ' + (current + 1));
+      stepTitle.setAttribute('tabindex', '-1');
+    }
     if (stepContent) {
       stepContent.innerHTML = s.content;
-      // links externos em nova aba - defensivo
       try {
         var links = stepContent.querySelectorAll('a');
         for (var i=0;i<links.length;i++) {
@@ -182,35 +263,72 @@ var KBWizard = (function () {
             a.setAttribute('rel', 'noopener');
           }
         }
+        // images: add loading lazy and alt fallback
+        var imgs = stepContent.querySelectorAll('img');
+        for (var j=0;j<imgs.length;j++) {
+          if (!imgs[j].getAttribute('alt')) imgs[j].setAttribute('alt', '');
+          imgs[j].setAttribute('loading', 'lazy');
+        }
       } catch(e){}
       stepContent.scrollTop = 0;
       var main = qs('.kbwizard-main');
       if (main) main.scrollTop = 0;
     }
-    if (stepCounter) stepCounter.textContent = (current + 1) + ' / ' + total;
+    if (stepCounter) {
+      stepCounter.textContent = (current + 1) + ' / ' + total;
+      stepCounter.setAttribute('aria-label', 'Passo ' + (current + 1) + ' de ' + total);
+    }
     updateProgress();
     updateButtons();
     renderSidebar();
-    // salva progresso mas não bloqueia render
+    // hide feedback if navigating back
+    var feedback = qs('#kbwizard-step-feedback');
+    if (feedback) feedback.style.display = 'none';
+    if (stepContent) stepContent.style.opacity = '1';
     try { saveProgress(false); } catch(e){ console.warn(e); }
+    // accessibility announce
+    var pct = Math.round(((current + 1) / total) * 100);
+    announce((s.title || ('Passo ' + (current+1))) + '. Passo ' + (current+1) + ' de ' + total + '. ' + pct + ' por cento concluído.');
+    // Move focus to title for screen readers (without scrolling)
+    try { if (stepTitle) stepTitle.focus({preventScroll:true}); } catch(e){ try{ stepTitle.focus(); }catch(e2){} }
   }
 
   function updateProgress() {
     var pct = Math.round(((current + 1) / total) * 100);
-    if (progressFill) progressFill.style.width = pct + '%';
-    if (progressText) progressText.textContent = pct + '%';
+    if (progressFill) {
+      progressFill.style.width = pct + '%';
+      progressFill.setAttribute('aria-valuenow', String(pct));
+      progressFill.setAttribute('aria-valuemin', '0');
+      progressFill.setAttribute('aria-valuemax', '100');
+    }
+    if (progressText) {
+      progressText.textContent = pct + '%';
+      progressText.setAttribute('aria-label', pct + ' por cento');
+    }
+    var bar = qs('.kbwizard-progress-bar');
+    if (bar) bar.setAttribute('aria-label', 'Progresso ' + pct + '%');
   }
 
   function updateButtons() {
-    if (prevBtn) prevBtn.disabled = current === 0;
+    if (prevBtn) {
+      prevBtn.disabled = current === 0;
+      prevBtn.setAttribute('aria-disabled', prevBtn.disabled ? 'true' : 'false');
+    }
     if (nextBtn) {
-      if (current === total - 1) {
-        nextBtn.style.display = 'none';
-        if (finishBtn) finishBtn.style.display = 'inline-flex';
-      } else {
-        nextBtn.style.display = 'inline-flex';
-        if (finishBtn) finishBtn.style.display = 'none';
+      var isLast = current === total - 1;
+      nextBtn.style.display = isLast ? 'none' : 'inline-flex';
+      nextBtn.setAttribute('aria-hidden', isLast ? 'true' : 'false');
+      if (finishBtn) {
+        finishBtn.style.display = isLast ? 'inline-flex' : 'none';
+        finishBtn.setAttribute('aria-hidden', isLast ? 'false' : 'true');
       }
+    }
+    // also update finish visibility depends on completed state
+    var feedback = qs('#kbwizard-step-feedback');
+    if (feedback && feedback.style.display !== 'none') {
+      if (nextBtn) nextBtn.style.display = 'none';
+      if (finishBtn) finishBtn.style.display = 'none';
+      if (prevBtn) prevBtn.style.display = 'none';
     }
   }
 
@@ -219,28 +337,44 @@ var KBWizard = (function () {
       console.error('[KBWizard] overlay não encontrado ao abrir');
       return;
     }
-    // Garante que init ocorreu (caso banner injetado via AJAX de aba)
     if (!_inited) init();
+    previouslyFocused = document.activeElement;
     overlay.style.display = 'flex';
+    overlay.setAttribute('aria-hidden', 'false');
     try { document.body.classList.add('kbwizard-open'); } catch(e){}
     document.body.style.overflow = 'hidden';
+    // ensure inert background for screen readers
+    try {
+      var page = qs('#page') || qs('main') || document.body;
+      if (page && page !== document.body) page.setAttribute('aria-hidden', 'false');
+    } catch(e){}
     renderStep();
-    if (nextBtn) try{ nextBtn.focus(); }catch(e){}
+    // focus first actionable element
+    setTimeout(function(){
+      var focusable = getFocusable();
+      var target = nextBtn && nextBtn.style.display !== 'none' ? nextBtn : (finishBtn && finishBtn.style.display !== 'none' ? finishBtn : focusable[0]);
+      try { if (target) target.focus(); } catch(e){}
+    }, 80);
   }
 
   function close() {
     if (!overlay) return;
     overlay.style.display = 'none';
+    overlay.setAttribute('aria-hidden', 'true');
     try { document.body.classList.remove('kbwizard-open'); } catch(e){}
     document.body.style.overflow = '';
+    // restore focus
+    try { if (previouslyFocused && previouslyFocused.focus) previouslyFocused.focus(); } catch(e){}
+    previouslyFocused = null;
   }
 
-  var _navLock = false;
   function next() {
     if (_navLock) return;
     _navLock = true;
     setTimeout(function(){ _navLock=false; }, 350);
     if (current < total - 1) {
+      // enforce requireSequential: only +1 allowed, next respects it anyway
+      if (!canGoTo(current+1)) { _navLock=false; return; }
       current++;
       renderStep();
     } else {
@@ -261,7 +395,7 @@ var KBWizard = (function () {
   }
 
   function goTo(idx) {
-    if (!allowJump && idx > current) return;
+    if (!canGoTo(idx)) return;
     if (idx < 0 || idx >= total) return;
     current = idx;
     renderStep();
@@ -273,24 +407,44 @@ var KBWizard = (function () {
     var main = qs('.kbwizard-main');
     if (feedback) {
       feedback.style.display = 'flex';
-      feedback.innerHTML = '<div><strong style="font-size:18px"><i class="ti ti-confetti" style="margin-right:6px"></i>Parabéns! Você concluiu todos os ' + total + ' passos!</strong><div style="margin-top:6px;opacity:.85">Guia finalizado com sucesso. O que deseja fazer agora?</div></div><div class="kbwizard-feedback-actions"><button class="btn btn-outline-success" onclick="KBWizard.reset()"><i class="ti ti-refresh" style="margin-right:4px"></i>Recomeçar</button><button class="btn btn-success" onclick="KBWizard.close()"><i class="ti ti-check" style="margin-right:4px"></i>Fechar</button></div>';
-      // Garante que a box verde não fica atrás do conteúdo: esconde conteúdo longo atrás e rola para feedback
+      feedback.setAttribute('role', 'status');
+      feedback.setAttribute('aria-live', 'polite');
+      feedback.innerHTML = '<div class="kbwizard-feedback-icon" aria-hidden="true">🎉</div>'
+        + '<div><strong style="font-size:18px"><i class="ti ti-confetti" style="margin-right:6px" aria-hidden="true"></i>Parabéns! Você concluiu todos os ' + total + ' passos!</strong>'
+        + '<div style="margin-top:6px;opacity:.85">Guia finalizado com sucesso. Seu progresso foi salvo.</div>'
+        + '<div class="kbwizard-feedback-hint" style="margin-top:8px;font-size:13px;opacity:.75">Dica: use <kbd>ESC</kbd> para fechar ou recomece para revisar.</div></div>'
+        + '<div class="kbwizard-feedback-actions">'
+        + '<button class="btn btn-outline-success" onclick="KBWizard.reset()" aria-label="Recomeçar do primeiro passo"><i class="ti ti-refresh" style="margin-right:4px" aria-hidden="true"></i>Recomeçar</button>'
+        + '<button class="btn btn-success" onclick="KBWizard.close()" aria-label="Fechar guia"><i class="ti ti-check" style="margin-right:4px" aria-hidden="true"></i>Fechar</button>'
+        + '</div>';
       if (stepContent) stepContent.style.opacity = '0.35';
       if (stepTitle) stepTitle.textContent = '✓ Concluído';
-      if (main) { main.scrollTop = main.scrollHeight; setTimeout(function(){ try{ main.scrollTo({top: main.scrollHeight, behavior: 'smooth'}); }catch(e){ main.scrollTop = main.scrollHeight; } }, 100); }
+      if (main) {
+        var behavior = isReducedMotion() ? 'auto' : 'smooth';
+        try { main.scrollTo({top: main.scrollHeight, behavior: behavior}); } catch(e){ main.scrollTop = main.scrollHeight; }
+      }
+      announce('Guia concluído! Você finalizou todos os ' + total + ' passos. Parabéns!');
+      // confetti: add class to trigger CSS animation if not reduced motion
+      if (!isReducedMotion()) {
+        feedback.classList.add('kbwizard-celebrate');
+        setTimeout(function(){ feedback.classList.remove('kbwizard-celebrate'); }, 1800);
+      }
     }
     if (finishBtn) finishBtn.style.display = 'none';
     if (nextBtn) nextBtn.style.display = 'none';
     if (prevBtn) prevBtn.style.display = 'none';
-    // Atualiza sidebar para mostrar todos completos
     renderSidebar();
+    // mark all as completed visually
+    if (stepList) {
+      var items = qsa('li', stepList);
+      items.forEach(function(li){ li.classList.add('completed'); });
+    }
   }
 
   function saveProgress(isCompleted) {
     if (!kbId) return;
     var csrf = getCsrfToken();
     if (!csrf) {
-      // sem token, tenta salvar em localStorage como fallback
       try { localStorage.setItem('kbwizard_'+kbId, current + (isCompleted?':done':'')); } catch(e){}
       return;
     }
@@ -301,22 +455,20 @@ var KBWizard = (function () {
     formData.append('_glpi_csrf_token', csrf);
 
     var finalUrl = getPluginAjaxUrl();
-    // Não logar erro se 404/instalação em subpasta - apenas warn
     fetch(finalUrl, { method: 'POST', body: formData, credentials: 'same-origin' })
       .then(function(r){
         if (!r.ok) throw new Error('HTTP '+r.status);
         return r.json().catch(function(){ return {}; });
       })
       .then(function(d){ log('progress salvo', d); })
-      .catch(function(e){ console.warn('[KBWizard] saveProgress falhou', e.message, finalUrl); });
+      .catch(function(e){ console.warn('[KBWizard] saveProgress falhou', e.message, finalUrl); try { localStorage.setItem('kbwizard_'+kbId, current + (isCompleted?':done':'')); } catch(e2){} });
   }
 
   function reset() {
     current = 0;
     var feedback = qs('#kbwizard-step-feedback');
-    if (feedback) feedback.style.display = 'none';
+    if (feedback) { feedback.style.display = 'none'; feedback.innerHTML=''; }
     if (stepContent) stepContent.style.opacity = '1';
-    if (stepTitle) stepTitle.textContent = '';
     renderStep();
     var csrf = getCsrfToken();
     if (!csrf) {
@@ -331,7 +483,6 @@ var KBWizard = (function () {
   }
 
   function getPluginAjaxUrl() {
-    // FIX: prioriza CFG_GLPI.root_doc oficial do GLPI 11
     try {
       if (typeof CFG_GLPI !== 'undefined' && CFG_GLPI.root_doc) {
         return CFG_GLPI.root_doc + '/plugins/kbwizard/ajax/progress.php';
@@ -340,14 +491,12 @@ var KBWizard = (function () {
         return GLPI_CFG.root_doc + '/plugins/kbwizard/ajax/progress.php';
       }
     } catch(e){}
-    // Detecta via <script> ou <link> do GLPI para achar prefixo
     var scripts = document.querySelectorAll('script[src*="/plugins/"], script[src*="/marketplace/"]');
     for (var i=0;i<scripts.length;i++) {
       var src = scripts[i].getAttribute('src') || '';
       var m = src.match(/^(\/[^\/]+)?\/(plugins|marketplace)\//);
       if (m) {
         var prefix = m[1] || '';
-        // testa se kbwizard está no mesmo plugins/marketplace
         if (src.indexOf('kbwizard') !== -1) {
           return prefix + m[0].replace(/\/$/, '') + '/kbwizard/ajax/progress.php'.replace('//','/');
         }
@@ -355,14 +504,11 @@ var KBWizard = (function () {
     }
     if (location.pathname.indexOf('/glpi/') !== -1) return '/glpi/plugins/kbwizard/ajax/progress.php';
     if (location.pathname.indexOf('/marketplace/') !== -1) {
-      // Tenta marketplace
       var base = location.pathname.split('/marketplace')[0];
-      // fallback para plugins
       return (base || '') + '/plugins/kbwizard/ajax/progress.php';
     }
     if (location.pathname.indexOf('/front/') !== -1) {
       var prefix2 = location.pathname.split('/front')[0];
-      // Se prefix2 contém /marketplace, ajusta
       if (prefix2.indexOf('marketplace') !== -1) {
         return prefix2.replace(/\/plugins\/.*/, '/plugins') + '/kbwizard/ajax/progress.php';
       }
@@ -376,7 +522,6 @@ var KBWizard = (function () {
     if (meta && meta.content) return meta.content;
     var input = document.querySelector('input[name="_glpi_csrf_token"]');
     if (input && input.value) return input.value;
-    // GLPI 11 usa input[name="_glpi_csrf_token"] dentro do header, mas também window
     try {
       if (typeof window !== 'undefined' && window.glpiCsrfToken) return window.glpiCsrfToken;
     } catch(e){}
@@ -389,7 +534,7 @@ var KBWizard = (function () {
     return div.innerHTML;
   }
 
-  return { init: init, open: open, close: close, next: next, prev: prev, goTo: goTo, reset: reset, saveProgress: saveProgress };
+  return { init: init, open: open, close: close, next: next, prev: prev, goTo: goTo, reset: reset, saveProgress: saveProgress, _canGoTo: canGoTo, _isReducedMotion: isReducedMotion };
 })();
 
 // Inicialização simples e segura - com fallback AJAX se hook PHP não disparou (banner sumido)
@@ -433,18 +578,14 @@ var KBWizard = (function () {
   }
 
   function fetchAndInjectBanner() {
-    // Só tenta se estiver numa página de artigo da base
     if (location.pathname.indexOf('knowbaseitem') === -1) return;
-    if (document.getElementById('kbwizard-data')) return; // já injetado via PHP
+    if (document.getElementById('kbwizard-data')) return;
     var kbId = getKbIdFromUrl();
     if (!kbId) return;
-    // Evita loop
     if (window._kbwizardFetching) return;
     window._kbwizardFetching = true;
     var base = getAjaxBase();
-    // tenta plugins e marketplace
     var urls = [base + '/plugins/kbwizard/ajax/get_steps.php?knowbaseitems_id='+kbId, base + '/marketplace/kbwizard/ajax/get_steps.php?knowbaseitems_id='+kbId];
-    // remove duplicado // 
     urls = urls.filter(function(v,i,a){ return a.indexOf(v)===i; });
     function tryFetch(idx) {
       if (idx >= urls.length) { window._kbwizardFetching = false; return; }
@@ -469,16 +610,10 @@ var KBWizard = (function () {
   }
 
   function injectBanner(data) {
-    // Cria estrutura mínima do banner + data + overlay (copia do wizard_banner.html.php)
     var existing = document.getElementById('kbwizard-data');
     if (existing) return;
-    // Encontra container para injetar: tenta .card ou #page ou body
-    var anchor = document.querySelector('.knowbaseitem, .card-body, #page, main');
-    if (!anchor) anchor = document.body;
-
     var total = data.steps.length;
     var current = data.current || 0;
-    // Cria data
     var dataDiv = document.createElement('div');
     dataDiv.id = 'kbwizard-data';
     dataDiv.style.display = 'none';
@@ -487,36 +622,35 @@ var KBWizard = (function () {
     dataDiv.setAttribute('data-current', current);
     dataDiv.setAttribute('data-allow-jump', data.allow_jump ? '1':'0');
     dataDiv.setAttribute('data-show-progress', data.show_progress ? '1':'0');
-    dataDiv.setAttribute('data-require-seq', '0');
+    dataDiv.setAttribute('data-require-seq', data.require_sequential ? '1' : (data.require_seq ? '1' : '0'));
     document.body.appendChild(dataDiv);
 
-    // Cria banner (simplificado)
     var banner = document.createElement('div');
     banner.id = 'kbwizard-banner';
     banner.className = 'card border-primary mb-3 shadow-sm';
+    banner.setAttribute('role', 'region');
+    banner.setAttribute('aria-label', 'Guia passo a passo');
     banner.innerHTML = '<div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">'
-      + '<div class="d-flex align-items-center gap-3"><div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width:48px;height:48px;"><i class="ti ti-list-check" style="font-size:24px"></i></div><div><h4 class="mb-0">Guia Passo a Passo</h4><small class="text-muted">Este artigo tem '+total+' passos. Siga no seu ritmo sem se perder!</small></div></div>'
-      + '<div class="d-flex gap-2"><button id="kbwizard-start-btn" class="btn btn-primary btn-lg"><i class="ti ti-player-play me-1"></i>'+ (current>0 ? 'Continuar de onde parei ('+(current+1)+'/'+total+')' : 'Iniciar Passo a Passo') +'</button><button id="kbwizard-toggle-original" class="btn btn-outline-secondary"><i class="ti ti-article me-1"></i>Ver artigo completo</button></div></div>'
-      + (data.show_progress && current>0 ? '<div class="card-footer p-0"><div class="progress" style="height:6px"><div class="progress-bar bg-success" style="width:'+Math.round((current/total)*100)+'%"></div></div></div>' : '');
-    // Insere antes do anchor ou no topo da página
+      + '<div class="d-flex align-items-center gap-3"><div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width:48px;height:48px;" aria-hidden="true"><i class="ti ti-list-check" style="font-size:24px"></i></div><div><h4 class="mb-0">Guia Passo a Passo</h4><small class="text-muted">Este artigo tem '+total+' passos. Siga no seu ritmo sem se perder!</small></div></div>'
+      + '<div class="d-flex gap-2"><button id="kbwizard-start-btn" class="btn btn-primary btn-lg" aria-label="'+ (current>0 ? 'Continuar de onde parou, passo '+(current+1)+' de '+total : 'Iniciar passo a passo, '+total+' passos') +'"><i class="ti ti-player-play me-1" aria-hidden="true"></i>'+ (current>0 ? 'Continuar de onde parei ('+(current+1)+'/'+total+')' : 'Iniciar Passo a Passo') +'</button><button id="kbwizard-toggle-original" class="btn btn-outline-secondary"><i class="ti ti-article me-1" aria-hidden="true"></i>Ver artigo completo</button></div></div>'
+      + (data.show_progress && current>0 ? '<div class="card-footer p-0"><div class="progress" style="height:6px" role="progressbar" aria-valuenow="'+Math.round((current/total)*100)+'" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar bg-success" style="width:'+Math.round((current/total)*100)+'%"></div></div></div>' : '');
     var target = document.querySelector('.knowbaseitem, #main, .card');
     if (target && target.parentNode) target.parentNode.insertBefore(banner, target);
     else document.body.insertBefore(banner, document.body.firstChild);
 
-    // Cria overlay se não existe (copia estrutura)
     if (!document.getElementById('kbwizard-overlay')) {
       var overlay = document.createElement('div');
       overlay.id = 'kbwizard-overlay';
       overlay.style.display = 'none';
-      overlay.innerHTML = '<div id="kbwizard-modal" role="dialog" aria-modal="true">'
-        + '<div class="kbwizard-header"><div class="kbwizard-header-left"><span class="kbwizard-badge"><i class="ti ti-list-check"></i> '+escapeHtml(data.kb_name)+'</span><span id="kbwizard-step-counter" class="kbwizard-counter">1 / '+total+'</span></div><div class="kbwizard-header-right"><button id="kbwizard-minimize" class="btn btn-sm btn-ghost" title="Minimizar"><i class="ti ti-minus"></i></button><button id="kbwizard-close" class="btn btn-sm btn-ghost" title="Fechar"><i class="ti ti-x"></i></button></div></div>'
-        + (data.show_progress ? '<div class="kbwizard-progress-wrap"><div class="kbwizard-progress-bar"><div id="kbwizard-progress-fill"></div></div><span id="kbwizard-progress-text" class="kbwizard-progress-text">0%</span></div>' : '')
-        + '<div class="kbwizard-body"><aside class="kbwizard-sidebar" id="kbwizard-sidebar"><div class="kbwizard-sidebar-title">Passos</div><ol id="kbwizard-step-list" class="kbwizard-step-list"></ol></aside><main class="kbwizard-main"><h2 id="kbwizard-step-title" class="kbwizard-step-title"></h2><div id="kbwizard-step-content" class="kbwizard-step-content"></div><div id="kbwizard-step-feedback" class="kbwizard-feedback" style="display:none"></div></main></div>'
-        + '<div class="kbwizard-footer"><button id="kbwizard-prev" class="btn btn-outline-secondary"><i class="ti ti-arrow-left me-1"></i>Anterior</button><div class="kbwizard-footer-center"><button id="kbwizard-exit" class="btn btn-ghost">Sair</button></div><button id="kbwizard-next" class="btn btn-primary">Próximo <i class="ti ti-arrow-right ms-1"></i></button><button id="kbwizard-finish" class="btn btn-success" style="display:none"><i class="ti ti-check me-1"></i>Concluir</button></div></div>';
+      overlay.setAttribute('aria-hidden', 'true');
+      overlay.innerHTML = '<div id="kbwizard-modal" role="dialog" aria-modal="true" aria-labelledby="kbwizard-step-title">'
+        + '<div class="kbwizard-header"><div class="kbwizard-header-left"><span class="kbwizard-badge"><i class="ti ti-list-check" aria-hidden="true"></i> '+escapeHtml(data.kb_name)+'</span><span id="kbwizard-step-counter" class="kbwizard-counter" aria-live="polite">1 / '+total+'</span></div><div class="kbwizard-header-right"><button id="kbwizard-minimize" class="btn btn-sm btn-ghost" title="Minimizar" aria-label="Minimizar"><i class="ti ti-minus" aria-hidden="true"></i></button><button id="kbwizard-close" class="btn btn-sm btn-ghost" title="Fechar" aria-label="Fechar guia"><i class="ti ti-x" aria-hidden="true"></i></button></div></div>'
+        + (data.show_progress ? '<div class="kbwizard-progress-wrap" aria-hidden="true"><div class="kbwizard-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><div id="kbwizard-progress-fill"></div></div><span id="kbwizard-progress-text" class="kbwizard-progress-text">0%</span></div>' : '')
+        + '<div class="kbwizard-body"><aside class="kbwizard-sidebar" id="kbwizard-sidebar" aria-label="Lista de passos"><div class="kbwizard-sidebar-title">Passos</div><ol id="kbwizard-step-list" class="kbwizard-step-list" role="list"></ol><div class="kbwizard-sidebar-hints" style="margin-top:12px;font-size:11px;color:#64748b;line-height:1.4"><kbd>←</kbd> <kbd>→</kbd> navegar<br><kbd>ESC</kbd> fechar</div></aside><main class="kbwizard-main"><h2 id="kbwizard-step-title" class="kbwizard-step-title" tabindex="-1"></h2><div id="kbwizard-step-content" class="kbwizard-step-content"></div><div id="kbwizard-step-feedback" class="kbwizard-feedback" style="display:none" role="status" aria-live="polite"></div></main></div>'
+        + '<div class="kbwizard-footer"><button id="kbwizard-prev" class="btn btn-outline-secondary"><i class="ti ti-arrow-left me-1" aria-hidden="true"></i>Anterior</button><div class="kbwizard-footer-center"><button id="kbwizard-exit" class="btn btn-ghost">Sair</button></div><button id="kbwizard-next" class="btn btn-primary">Próximo <i class="ti ti-arrow-right ms-1" aria-hidden="true"></i></button><button id="kbwizard-finish" class="btn btn-success" style="display:none"><i class="ti ti-check me-1" aria-hidden="true"></i>Concluir</button></div></div>';
       document.body.appendChild(overlay);
     }
     function escapeHtml(str){ var d=document.createElement('div'); d.textContent=str||''; return d.innerHTML; }
-    // Re-init
     setTimeout(function(){ KBWizard.init(); }, 100);
   }
 
