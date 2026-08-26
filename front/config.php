@@ -45,6 +45,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
     $config = new PluginKbwizardConfig();
     $found = $config->getFromDBByCrit(['knowbaseitems_id' => $knowbaseitems_id]);
 
+    // Títulos editáveis por passo (modo auto) — auto_titles[0], auto_titles[1] ...
+    $autoTitlesRaw = $_POST['auto_titles'] ?? [];
+    $autoTitlesJson = '';
+    if (is_array($autoTitlesRaw) && !empty($autoTitlesRaw)) {
+        $clean = [];
+        foreach ($autoTitlesRaw as $idx => $t) {
+            $t = trim((string)$t);
+            if ($t === '') continue;
+            if (mb_strlen($t) > 255) $t = mb_substr($t, 0, 255);
+            $clean[(int)$idx] = $t;
+        }
+        if (!empty($clean)) {
+            $autoTitlesJson = json_encode($clean, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+    }
+
     $input = [
         'knowbaseitems_id' => $knowbaseitems_id,
         'is_active' => (int)($_POST['is_active'] ?? 0),
@@ -53,6 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
         'show_progress' => (int)($_POST['show_progress'] ?? 1),
         'allow_jump' => (int)($_POST['allow_jump'] ?? 1),
         'require_sequential' => (int)($_POST['require_sequential'] ?? 0),
+        'auto_titles' => $autoTitlesJson,
     ];
 
     if ($found) {

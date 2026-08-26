@@ -21,6 +21,7 @@ function plugin_kbwizard_install() {
             `show_progress` tinyint(1) NOT NULL DEFAULT 1,
             `allow_jump` tinyint(1) NOT NULL DEFAULT 1,
             `require_sequential` tinyint(1) NOT NULL DEFAULT 0,
+            `auto_titles` text,
             `date_creation` timestamp NULL DEFAULT NULL,
             `date_mod` timestamp NULL DEFAULT NULL,
             PRIMARY KEY (`id`),
@@ -121,6 +122,16 @@ function plugin_kbwizard_update($current_version) {
                 $migration->addKey($tableProg, 'users_id');
             }
             $migration->migrationOneTable($tableProg);
+        }
+    }
+
+    // Atualização para 1.0.15 - títulos editáveis por passo no modo auto
+    if (version_compare($current_version, '1.0.15', '<')) {
+        $table = 'glpi_plugin_kbwizard_configs';
+        if ($DB->tableExists($table) && !$DB->fieldExists($table, 'auto_titles')) {
+            $migration->addField($table, 'auto_titles', 'text');
+            $migration->migrationOneTable($table);
+            Toolbox::logInFile('kbwizard', "KB Wizard atualizado para 1.0.15 - coluna auto_titles adicionada\n");
         }
     }
 

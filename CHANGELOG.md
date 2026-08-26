@@ -1,6 +1,14 @@
 # Changelog
 
-## 1.0.14 - 2026-08-26 Polished (Bugs + UX do modal) — ATUAL
+## 1.0.15 - 2026-08-26 Titulos editaveis por passo (auto) — ATUAL
+- **Novo**: `hook.php:23` coluna `auto_titles` TEXT (JSON) em `glpi_plugin_kbwizard_configs` + migration `1.0.15`
+- **Admin**: `inc/config.class.php:101` decode `auto_titles`, `inc/config.class.php:215` card “Títulos de cada etapa (editável)” com `input name='auto_titles[idx]'` (placeholder = título automático extraído de `---PASSO---`, valor = personalizado), `inc/config.class.php:277` toggle mostra/esconde junto com delimitador
+- **Save**: `front/config.php:48` sanitiza `auto_titles[]` (trim, 255, só não-vazios) e salva JSON
+- **Render**: `inc/step.class.php:56` `getStepsForItem()` aplica overrides `auto_titles[idx]` sobre `parseAnswerToSteps()` para modo auto (mantém conteúdo, só troca título)
+- **Preview**: `inc/config.class.php:261` lista mostra badge `personalizado` vs `#n` e excerpt
+- **Compat**: `setup.php:8` bump `1.0.14 → 1.0.15`, `composer.json:6` alinhado
+
+## 1.0.14 - 2026-08-26 Polished (Bugs + UX do modal)
 - **Bug crítico**: `require_sequential` agora é lido em `js/kbwizard.js:14` e respeitado em `canGoTo()` — antes o atributo `data-require-seq` era injetado mas ignorado
 - **Bug crítico**: `front/config.form.php:3`, `front/config.php:3`, `front/step.form.php:3` com fallback robusto `plugins/` vs `marketplace/` (mesmo padrão de `ajax/get_steps.php:5`)
 - **Bug crítico**: `ajax/get_steps.php:82` agora retorna `require_sequential` no JSON para fallback AJAX do `js/kbwizard.js:473`
@@ -8,7 +16,7 @@
 - **UX Banner**: `templates/wizard_banner.html.php:17` pulse só com `prefers-reduced-motion: no-preference`; `moveBannerToTop()` agora verifica `isInViewport()` e só rola se `scrollY < 400`, sem duplo `scrollIntoView` — `setup.php:147` e `js/kbwizard.js:473` respeitam `isReducedMotion()`
 - **UX Modal**: `js/kbwizard.js:30` focus trap completo (`getFocusable()` + `trapTab()`), `previouslyFocused` restaurado no `close()`, `Home`/`End` para primeiro/último passo, `aria-live` via `#kbwizard-live`, `aria-current="step"`, `tabindex` + `keydown Enter/Space` nos itens laterais, `announce()` a cada troca
 - **UX Modal**: `js/kbwizard.js:238` `requireSequential` + `allowJump` combinados corretamente; `renderSidebar()` usa `disabled` + `aria-disabled`; `updateButtons()` com `aria-disabled`/`aria-hidden`
-- **UX Feedback**: `js/kbwizard.js:270` conclusão com ícone 🎉, `kbwizard-celebrate` (CSS), botões Recomeçar/Fechar/Imprimir, `window.print()` e `announce()` de sucesso, sidebar marca todos `completed`
+- **UX Feedback**: `js/kbwizard.js:270` conclusão com ícone 🎉, `kbwizard-celebrate` (CSS), botões Recomeçar/Fechar e `announce()` de sucesso, sidebar marca todos `completed` (Imprimir removido a pedido)
 - **Acessibilidade**: `css/kbwizard.css:182` `:focus-visible`, `prefers-reduced-motion`, `forced-colors`, `print` media, `kbd` styling, `visually-hidden` helper; `templates/wizard_banner.html.php:36` `role="region"` + `aria-label`, `aria-live` no contador, `aria-hidden` no overlay, hints `<kbd>←</kbd><kbd>→</kbd>` no sidebar
 - **Compat**: `setup.php:8` bump para `1.0.14`, `composer.json:6` alinhado, `templates/wizard_banner.html.php:19` inline CSS com media query
 

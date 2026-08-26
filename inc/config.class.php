@@ -72,7 +72,8 @@ class PluginKbwizardConfig extends CommonDBTM {
                     'auto_delimiter' => 'hr_h2',
                     'show_progress' => 1,
                     'allow_jump' => 1,
-                    'require_sequential' => 0
+                    'require_sequential' => 0,
+                    'auto_titles' => ''
                 ];
             }
             self::showConfigForm($item, $config);
@@ -98,6 +99,23 @@ class PluginKbwizardConfig extends CommonDBTM {
         $showProgress = (int)($config->fields['show_progress'] ?? 1);
         $allowJump = (int)($config->fields['allow_jump'] ?? 1);
         $requireSeq = (int)($config->fields['require_sequential'] ?? 0);
+        $autoTitlesRaw = $config->fields['auto_titles'] ?? '';
+        $autoTitles = [];
+        if (!empty($autoTitlesRaw)) {
+            try {
+                $decoded = json_decode($autoTitlesRaw, true);
+                if (is_array($decoded)) $autoTitles = $decoded;
+            } catch (Throwable $e) { $autoTitles = []; }
+        }
+        // Prévia para inputs editáveis (modo auto)
+        $kbAnswer = $kb->fields['answer'] ?? '';
+        $rawPreviewSteps = [];
+        $countPreview = 0;
+        try {
+            $rawPreviewSteps = PluginKbwizardStep::parseAnswerToSteps($kbAnswer, $delimiter);
+            $countPreview = count($rawPreviewSteps);
+            // Aplica overrides só para contagem? Mantém raw para placeholder
+        } catch (Throwable $e) { $rawPreviewSteps = []; $countPreview = 0; }
 
         // Resolve WebDir com fallback para evitar fatal se plugin não encontrado
         $webDir = '';
@@ -193,22 +211,42 @@ class PluginKbwizardConfig extends CommonDBTM {
         echo "<small class='form-hint'>".__('Dica: no editor, insira uma linha horizontal onde cada passo deve terminar. Ou escreva <code>---PASSO---</code> para o modo marcador.', 'kbwizard')." </small>";
         echo "</div>";
 
+        // Títulos editáveis por passo (modo auto) - titles puxados de ---PASSO--- ficam editáveis
+        if ($splitMode === 'auto' && $countPreview > 0) {
+            echo "<div class='col-12' id='kbwizard_titles_group'>";
+            echo "<div class='card border-0 bg-light p-3 mt-2'>";
+            echo "<label class='form-label mb-1'><i class='ti ti-edit me-1'></i>".__('Títulos de cada etapa (editável)', 'kbwizard')."</label>";
+            echo "<small class='form-hint mb-2 d-block'>".__('Este é o título que hoje é puxado automaticamente do começo da sessão (ex: primeiras palavras ou &lt;h2&gt;). Edite abaixo para personalizar. Deixe vazio para manter o automático.', 'kbwizard')."</small>";
+            foreach ($rawPreviewSteps as $idx => $s) {
+                $num = $idx + 1;
+                $autoTitle = $s['title'] ?? '';
+                $custom = $autoTitles[$idx] ?? '';
+                $excerpt = mb_strimwidth(strip_tags($s['content'] ?? ''), 0, 80, '...');
+                echo "<div class='mb-2'>";
+                echo "<label class='form-label small mb-1'>".sprintf(__('Passo %d', 'kbwizard'), $num)." <span class='text-muted'>— ".htmlspecialchars($excerpt, ENT_QUOTES, 'UTF-8')."</span></label>";
+                echo "<div class='input-group input-group-sm'>";
+                echo "<span class='input-group-text' style='min-width:42px'>#$num</span>";
+                echo "<input type='text' name='auto_titles[$idx]' class='form-control' value=\"".htmlspecialchars($custom, ENT_QUOTES, 'UTF-8')."\" maxlength='255' placeholder=\"".htmlspecialchars($autoTitle, ENT_QUOTES, 'UTF-8')."\">";
+                echo "</div>";
+                if (!empty($custom)) {
+                    echo "<small class='text-success' style='font-size:11px'><i class='ti ti-check me-1'></i>".__('Título personalizado', 'kbwizard')." — ".__('automático', 'kbwizard').": \"".htmlspecialchars($autoTitle, ENT_QUOTES, 'UTF-8')."\"</small>";
+                }
+                echo "</div>";
+            }
+            echo "</div>";
+            echo "</div>";
+        } elseif ($splitMode === 'auto' && $countPreview === 0) {
+            echo "<div class='col-12' id='kbwizard_titles_group' style='display:none'></div>";
+        }
+
         echo "</div>"; // row
         echo "</div>"; // card-body
         echo "<div class='card-footer d-flex justify-content-between'>";
         echo "<button type='submit' name='save_config' class='btn btn-primary'><i class='ti ti-device-floppy me-1'></i>".__('Salvar', 'kbwizard')."</button>";
 
-        // Preview - defensivo
-        $countPreview = 0;
-        $previewSteps = [];
-        try {
-            $kbAnswer = $kb->fields['answer'] ?? '';
-            $stepMgr = new PluginKbwizardStep();
-            $previewSteps = $stepMgr->getStepsForItem($id, $kbAnswer, $splitMode, $delimiter);
-            $countPreview = count($previewSteps);
-        } catch (Throwable $e) {
-            $countPreview = 0;
-        }
+        // Preview count (já calculado em cima)
+        $previewSteps = $rawPreviewSteps;
+        // Se tiver overrides, aplica para contagem final (mesmo count)
         echo "<span class='text-muted align-self-center'>".sprintf(__('Prévia: %d passo(s) detectado(s)', 'kbwizard'), $countPreview)."</span>";
         echo "</div>";
         echo "</div>";
@@ -222,12 +260,18 @@ class PluginKbwizardConfig extends CommonDBTM {
             echo "<div class='list-group list-group-flush'>";
             foreach ($previewSteps as $idx => $s) {
                 $num = $idx + 1;
-                $title = $s['title'];
+                $autoTitle = $s['title'];
+                $finalTitle = (!empty($autoTitles[$idx])) ? $autoTitles[$idx] : $autoTitle;
+                $isCustom = !empty($autoTitles[$idx]);
                 $contentStrip = strip_tags($s['content']);
                 $excerpt = mb_strimwidth($contentStrip, 0, 120, '...');
                 echo "<div class='list-group-item'>";
-                echo "<div class='d-flex justify-content-between'><strong>Passo $num: ".htmlspecialchars($title, ENT_QUOTES, 'UTF-8')."</strong><span class='badge bg-secondary'>$num</span></div>";
-                echo "<small class='text-muted'>".htmlspecialchars($excerpt, ENT_QUOTES, 'UTF-8')."</small>";
+                echo "<div class='d-flex justify-content-between'><strong>Passo $num: ".htmlspecialchars($finalTitle, ENT_QUOTES, 'UTF-8')."</strong><span class='badge ".($isCustom ? 'bg-success' : 'bg-secondary')."'>".($isCustom ? __('personalizado', 'kbwizard') : "#$num")."</span></div>";
+                if ($isCustom) {
+                    echo "<small class='text-muted'>".__('Automático', 'kbwizard').": \"".htmlspecialchars($autoTitle, ENT_QUOTES, 'UTF-8')."\" — ".htmlspecialchars($excerpt, ENT_QUOTES, 'UTF-8')."</small>";
+                } else {
+                    echo "<small class='text-muted'>".htmlspecialchars($excerpt, ENT_QUOTES, 'UTF-8')."</small>";
+                }
                 echo "</div>";
             }
             if ($countPreview === 0) {
@@ -241,11 +285,17 @@ class PluginKbwizardConfig extends CommonDBTM {
             (function(){
                 var sel = document.getElementById('kbwizard_split_mode');
                 var grp = document.getElementById('kbwizard_delimiter_group');
+                var titles = document.getElementById('kbwizard_titles_group');
                 if(sel && grp){
                     sel.addEventListener('change', function(e){
-                        grp.style.display = (e.target.value === 'manual') ? 'none' : 'block';
+                        var isManual = (e.target.value === 'manual');
+                        grp.style.display = isManual ? 'none' : 'block';
+                        if(titles) titles.style.display = isManual ? 'none' : 'block';
                     });
-                    if(sel.value === 'manual') grp.style.display='none';
+                    if(sel.value === 'manual'){
+                        grp.style.display='none';
+                        if(titles) titles.style.display='none';
+                    }
                 }
             })();
         ");

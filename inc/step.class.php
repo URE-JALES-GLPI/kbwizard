@@ -53,8 +53,29 @@ class PluginKbwizardStep extends CommonDBTM {
             // fallback para auto se manual vazio ou erro
         }
 
-        // Modo automático: parseia o answer
-        return self::parseAnswerToSteps($answer, $delimiter);
+        // Modo automático: parseia o answer e aplica títulos editáveis (auto_titles)
+        $steps = self::parseAnswerToSteps($answer, $delimiter);
+        // Aplica overrides de título editáveis se existirem em glpi_plugin_kbwizard_configs.auto_titles
+        try {
+            if ($DB && $DB->tableExists('glpi_plugin_kbwizard_configs') && $DB->fieldExists('glpi_plugin_kbwizard_configs', 'auto_titles')) {
+                $conf = new PluginKbwizardConfig();
+                if ($conf->getFromDBByCrit(['knowbaseitems_id' => $knowbaseitems_id])) {
+                    $raw = $conf->fields['auto_titles'] ?? '';
+                    if (!empty($raw)) {
+                        $overrides = json_decode($raw, true);
+                        if (is_array($overrides)) {
+                            foreach ($steps as $idx => &$st) {
+                                if (isset($overrides[$idx]) && trim((string)$overrides[$idx]) !== '') {
+                                    $st['title'] = trim((string)$overrides[$idx]);
+                                }
+                            }
+                            unset($st);
+                        }
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+        return $steps;
     }
 
     /**
