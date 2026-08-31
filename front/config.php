@@ -1,5 +1,5 @@
 <?php
-// Robust include - suporta plugins/ e marketplace/
+// Robust include - suporta plugins/ e marketplace/ (tenta Toolbox após GLPI)
 $inc = null;
 $candidates = [
     __DIR__ . "/../../../inc/includes.php",
@@ -11,6 +11,10 @@ if ($inc) {
     include($inc);
 } else {
     include("../../../inc/includes.php");
+}
+// Toolbox disponível após includes.php
+if (file_exists(__DIR__ . '/../inc/toolbox.class.php') && !class_exists('PluginKbwizardToolbox', false)) {
+    @include_once __DIR__ . '/../inc/toolbox.class.php';
 }
 
 global $CFG_GLPI;
@@ -31,9 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
             // Se já foi validado pelo framework, o token não estará mais em $_SESSION['glpicsrftokens']
             // Nesse caso ignora o erro e segue. Se for ataque real, o framework já teria barrado antes.
             // Loga para debug mas não bloqueia o salvamento.
-            try {
-                Toolbox::logInFile('kbwizard', 'CSRF double-check ignorado: ' . $e->getMessage());
-            } catch (Throwable $e2) {}
+            if (class_exists('PluginKbwizardToolbox')) PluginKbwizardToolbox::log('CSRF double-check ignorado: ' . $e->getMessage());
+            else try { Toolbox::logInFile('kbwizard', 'CSRF double-check ignorado: ' . $e->getMessage()); } catch (Throwable $e2) {}
         }
     }
 
@@ -45,14 +48,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
     $config = new PluginKbwizardConfig();
     $found = $config->getFromDBByCrit(['knowbaseitems_id' => $knowbaseitems_id]);
 
-    // Garante coluna auto_titles existe (caso update do plugin ainda não rodou)
+    // Garante coluna auto_titles existe (caso update do plugin ainda não rodou) - com cache via Toolbox log
     global $DB;
     if ($DB && $DB->tableExists('glpi_plugin_kbwizard_configs') && !$DB->fieldExists('glpi_plugin_kbwizard_configs', 'auto_titles')) {
         try {
             $DB->doQuery("ALTER TABLE `glpi_plugin_kbwizard_configs` ADD COLUMN `auto_titles` TEXT DEFAULT NULL");
-            Toolbox::logInFile('kbwizard', 'auto_titles coluna criada on-the-fly em front/config.php');
+            if (class_exists('PluginKbwizardToolbox')) PluginKbwizardToolbox::log('auto_titles coluna criada on-the-fly em front/config.php');
+            else Toolbox::logInFile('kbwizard', 'auto_titles coluna criada on-the-fly em front/config.php');
         } catch (Throwable $e) {
-            try { Toolbox::logInFile('kbwizard', 'falha ao criar auto_titles: '.$e->getMessage()); } catch(Throwable $e2){}
+            if (class_exists('PluginKbwizardToolbox')) PluginKbwizardToolbox::log('falha ao criar auto_titles: '.$e->getMessage());
+            else try { Toolbox::logInFile('kbwizard', 'falha ao criar auto_titles: '.$e->getMessage()); } catch(Throwable $e2){}
         }
     }
 

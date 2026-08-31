@@ -10,12 +10,21 @@ $requireSeq = (int)($config->fields['require_sequential'] ?? 0);
 $total = count($steps);
 
 // INLINE CSS/JS para não depender de /plugins/kbwizard/... (evita 404 marketplace vs plugins)
-$cssInline = '';
-$cssPaths = [__DIR__ . '/../css/kbwizard.css', GLPI_ROOT . '/plugins/kbwizard/css/kbwizard.css', GLPI_ROOT . '/marketplace/kbwizard/css/kbwizard.css'];
-foreach ($cssPaths as $p) { if (is_file($p)) { $cssInline = @file_get_contents($p); break; } }
-$jsInline = '';
-$jsPaths = [__DIR__ . '/../js/kbwizard.js', GLPI_ROOT . '/plugins/kbwizard/js/kbwizard.js', GLPI_ROOT . '/marketplace/kbwizard/js/kbwizard.js'];
-foreach ($jsPaths as $p) { if (is_file($p)) { $jsInline = @file_get_contents($p); break; } }
+// Usa Toolbox com cache para evitar file_get_contents a cada render (melhoria #11)
+if (class_exists('PluginKbwizardToolbox')) {
+    $cssInline = PluginKbwizardToolbox::getCssInline();
+    $jsInline = PluginKbwizardToolbox::getJsInline();
+} else {
+    $cssInline = '';
+    $cssPaths = [__DIR__ . '/../css/kbwizard.css', GLPI_ROOT . '/plugins/kbwizard/css/kbwizard.css', GLPI_ROOT . '/marketplace/kbwizard/css/kbwizard.css'];
+    foreach ($cssPaths as $p) { if (is_file($p)) { $cssInline = @file_get_contents($p); break; } }
+    $jsInline = '';
+    $jsPaths = [__DIR__ . '/../js/kbwizard.js', GLPI_ROOT . '/plugins/kbwizard/js/kbwizard.js', GLPI_ROOT . '/marketplace/kbwizard/js/kbwizard.js'];
+    foreach ($jsPaths as $p) { if (is_file($p)) { $jsInline = @file_get_contents($p); break; } }
+}
+// WebDir para JS fallback (evita lógica duplicada no browser)
+$__kbwizardWebDir = class_exists('PluginKbwizardToolbox') ? PluginKbwizardToolbox::getWebDir() : (defined('PLUGIN_KBWIZARD_VERSION') ? plugin_kbwizard_get_webdir() : '');
+$__kbwizardRootDoc = class_exists('PluginKbwizardToolbox') ? PluginKbwizardToolbox::getRootDoc() : ($CFG_GLPI['root_doc'] ?? '');
 if ($cssInline) {
     // Banner fixo no topo, sem sticky (não acompanha scroll, não sobrepõe menus)
     // Pulse só se usuário não prefere reduced motion
@@ -32,6 +41,8 @@ if ($cssInline) {
      data-allow-jump="<?= $allowJump ?>"
      data-show-progress="<?= $showProgress ?>"
      data-require-seq="<?= $requireSeq ?>"
+     data-webdir="<?= htmlspecialchars($__kbwizardWebDir, ENT_QUOTES, 'UTF-8') ?>"
+     data-root-doc="<?= htmlspecialchars($__kbwizardRootDoc, ENT_QUOTES, 'UTF-8') ?>"
      style="display:none"></div>
 
 <div id="kbwizard-banner" class="card border-primary mb-3 shadow-sm" role="region" aria-label="<?= __('Guia Passo a Passo', 'kbwizard') ?>">

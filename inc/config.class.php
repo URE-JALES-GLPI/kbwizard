@@ -117,14 +117,16 @@ class PluginKbwizardConfig extends CommonDBTM {
             // Aplica overrides só para contagem? Mantém raw para placeholder
         } catch (Throwable $e) { $rawPreviewSteps = []; $countPreview = 0; }
 
-        // Resolve WebDir com fallback para evitar fatal se plugin não encontrado
-        $webDir = '';
-        try {
-            $webDir = Plugin::getWebDir('kbwizard');
-        } catch (Throwable $e) {
-            $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard';
-            if (!is_dir(GLPI_ROOT . '/plugins/kbwizard')) {
-                $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/marketplace/kbwizard';
+        // Resolve WebDir via Toolbox central (evita divergência plugins/marketplace)
+        $webDir = class_exists('PluginKbwizardToolbox') ? PluginKbwizardToolbox::getWebDir() : '';
+        if (empty($webDir)) {
+            try {
+                $webDir = Plugin::getWebDir('kbwizard');
+            } catch (Throwable $e) {
+                $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard';
+                if (defined('GLPI_ROOT') && !is_dir(GLPI_ROOT . '/plugins/kbwizard')) {
+                    $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/marketplace/kbwizard';
+                }
             }
         }
 

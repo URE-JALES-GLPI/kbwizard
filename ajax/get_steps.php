@@ -19,6 +19,7 @@ if ($inc) {
     echo json_encode(['error' => 'GLPI includes not found']);
     exit;
 }
+// Após GLPI, Toolbox está disponível para logging centralizado
 
 header('Content-Type: application/json');
 
@@ -92,6 +93,10 @@ try {
     ]);
 } catch (Throwable $e) {
     http_response_code(500);
-    try { Toolbox::logInFile('kbwizard', 'get_steps erro: '.$e->getMessage()."\n".$e->getTraceAsString()); } catch(Throwable $e2){}
-    echo json_encode(['error' => $e->getMessage()]);
+    if (class_exists('PluginKbwizardToolbox')) {
+        PluginKbwizardToolbox::log('get_steps erro: '.$e->getMessage()."\n".$e->getTraceAsString());
+    } else {
+        try { Toolbox::logInFile('kbwizard', 'get_steps erro: '.$e->getMessage()."\n".$e->getTraceAsString()); } catch(Throwable $e2){}
+    }
+    echo json_encode(['error' => 'Erro interno ao carregar passos']);
 }

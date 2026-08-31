@@ -12,6 +12,9 @@ if ($inc) {
 } else {
     include("../../../inc/includes.php");
 }
+if (file_exists(__DIR__ . '/../inc/toolbox.class.php') && !class_exists('PluginKbwizardToolbox', false)) {
+    @include_once __DIR__ . '/../inc/toolbox.class.php';
+}
 
 Session::checkRight(KnowbaseItem::$rightname, UPDATE);
 
@@ -34,7 +37,8 @@ function kbwizard_check_csrf($data) {
         Session::checkCSRF($data);
     } catch (Throwable $e) {
         // GLPI 11 já validou no controller, ignora double-check
-        try { Toolbox::logInFile('kbwizard', 'CSRF step double-check ignorado: '.$e->getMessage()); } catch(Throwable $e2){}
+        if (class_exists('PluginKbwizardToolbox')) PluginKbwizardToolbox::log('CSRF step double-check ignorado: '.$e->getMessage());
+        else try { Toolbox::logInFile('kbwizard', 'CSRF step double-check ignorado: '.$e->getMessage()); } catch(Throwable $e2){}
     }
 }
 

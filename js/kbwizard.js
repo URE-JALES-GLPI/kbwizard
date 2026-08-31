@@ -1,7 +1,50 @@
 /**
- * KB Wizard - Lógica do Passo a Passo - v1.0.14 polished
- * Fix: require_sequential, focus trap, aria, reduced-motion, finish UX
+ * KB Wizard - Lógica do Passo a Passo - v1.0.22 toolbox central
+ * Fix: require_sequential, focus trap, aria, reduced-motion, finish UX + DRY webdir
  */
+// Helpers centralizados (usados por KBWizard e fallback) - evitam duplicação plugins/marketplace
+function kbwizardGetRootDoc() {
+  try {
+    var el = document.getElementById('kbwizard-data');
+    if (el) {
+      var rd = el.getAttribute('data-root-doc');
+      if (rd !== null) return rd;
+    }
+    if (typeof CFG_GLPI !== 'undefined' && CFG_GLPI.root_doc) return CFG_GLPI.root_doc;
+    if (typeof GLPI_CFG !== 'undefined' && GLPI_CFG.root_doc) return GLPI_CFG.root_doc;
+  } catch(e){}
+  var scripts = document.querySelectorAll('script[src*="/plugins/"], script[src*="/marketplace/"]');
+  for (var i=0;i<scripts.length;i++) {
+    var src = scripts[i].getAttribute('src') || '';
+    // Captura prefixo antes de /plugins ou /marketplace
+    var m = src.match(/^(\/[^\/]+)?\/(plugins|marketplace)\//);
+    if (m && src.indexOf('kbwizard') !== -1) return (m[1]||'');
+  }
+  if (location.pathname.indexOf('/glpi/') !== -1) return '/glpi';
+  if (location.pathname.indexOf('/front/') !== -1) return location.pathname.split('/front')[0].split('/plugins')[0].split('/marketplace')[0] || '';
+  return '';
+}
+function kbwizardGetWebDir() {
+  try {
+    var el2 = document.getElementById('kbwizard-data');
+    if (el2) {
+      var wd = el2.getAttribute('data-webdir');
+      if (wd) return wd;
+    }
+    var scripts2 = document.querySelectorAll('script[src*="kbwizard"]');
+    for (var j=0;j<scripts2.length;j++) {
+      var s = scripts2[j].getAttribute('src') || '';
+      var m2 = s.match(/^(\/[^\/]+)?\/(plugins|marketplace)\/kbwizard\//);
+      if (m2) return (m2[1]||'') + '/' + m2[2] + '/kbwizard';
+    }
+  } catch(e){}
+  return kbwizardGetRootDoc() + '/plugins/kbwizard';
+}
+function kbwizardGetOtherWebDir(webDir) {
+  if (!webDir) webDir = kbwizardGetWebDir();
+  if (webDir.indexOf('marketplace') !== -1) return webDir.replace('marketplace','plugins');
+  return webDir.replace('plugins','marketplace');
+}
 var KBWizard = (function () {
   'use strict';
 
@@ -455,13 +498,24 @@ var KBWizard = (function () {
     formData.append('_glpi_csrf_token', csrf);
 
     var finalUrl = getPluginAjaxUrl();
+    var fallbackUrl = (function(){ try { return kbwizardGetOtherWebDir(finalUrl.replace('/ajax/progress.php','')) + '/ajax/progress.php'; } catch(e){ return null; }})();
     fetch(finalUrl, { method: 'POST', body: formData, credentials: 'same-origin' })
       .then(function(r){
         if (!r.ok) throw new Error('HTTP '+r.status);
         return r.json().catch(function(){ return {}; });
       })
       .then(function(d){ log('progress salvo', d); })
-      .catch(function(e){ console.warn('[KBWizard] saveProgress falhou', e.message, finalUrl); try { localStorage.setItem('kbwizard_'+kbId, current + (isCompleted?':done':'')); } catch(e2){} });
+      .catch(function(e){
+        // Tenta fallback marketplace/plugins antes de localStorage
+        if (fallbackUrl && fallbackUrl !== finalUrl) {
+          fetch(fallbackUrl, { method: 'POST', body: formData, credentials: 'same-origin' })
+            .then(function(r2){ if(!r2.ok) throw new Error('HTTP '+r2.status); return r2.json().catch(function(){return {};}); })
+            .then(function(d2){ log('progress salvo via fallback', d2); })
+            .catch(function(e2){ console.warn('[KBWizard] saveProgress falhou', e.message, finalUrl, e2.message, fallbackUrl); try { localStorage.setItem('kbwizard_'+kbId, current + (isCompleted?':done':'')); } catch(e3){} });
+        } else {
+          console.warn('[KBWizard] saveProgress falhou', e.message, finalUrl); try { localStorage.setItem('kbwizard_'+kbId, current + (isCompleted?':done':'')); } catch(e2){}
+        }
+      });
   }
 
   function reset() {
@@ -483,38 +537,12 @@ var KBWizard = (function () {
   }
 
   function getPluginAjaxUrl() {
+    // Centralizado via helpers (lê data-webdir quando disponível para evitar 404 plugins vs marketplace)
     try {
-      if (typeof CFG_GLPI !== 'undefined' && CFG_GLPI.root_doc) {
-        return CFG_GLPI.root_doc + '/plugins/kbwizard/ajax/progress.php';
-      }
-      if (typeof GLPI_CFG !== 'undefined' && GLPI_CFG.root_doc) {
-        return GLPI_CFG.root_doc + '/plugins/kbwizard/ajax/progress.php';
-      }
-    } catch(e){}
-    var scripts = document.querySelectorAll('script[src*="/plugins/"], script[src*="/marketplace/"]');
-    for (var i=0;i<scripts.length;i++) {
-      var src = scripts[i].getAttribute('src') || '';
-      var m = src.match(/^(\/[^\/]+)?\/(plugins|marketplace)\//);
-      if (m) {
-        var prefix = m[1] || '';
-        if (src.indexOf('kbwizard') !== -1) {
-          return prefix + m[0].replace(/\/$/, '') + '/kbwizard/ajax/progress.php'.replace('//','/');
-        }
-      }
+      return kbwizardGetWebDir() + '/ajax/progress.php';
+    } catch(e) {
+      return '/plugins/kbwizard/ajax/progress.php';
     }
-    if (location.pathname.indexOf('/glpi/') !== -1) return '/glpi/plugins/kbwizard/ajax/progress.php';
-    if (location.pathname.indexOf('/marketplace/') !== -1) {
-      var base = location.pathname.split('/marketplace')[0];
-      return (base || '') + '/plugins/kbwizard/ajax/progress.php';
-    }
-    if (location.pathname.indexOf('/front/') !== -1) {
-      var prefix2 = location.pathname.split('/front')[0];
-      if (prefix2.indexOf('marketplace') !== -1) {
-        return prefix2.replace(/\/plugins\/.*/, '/plugins') + '/kbwizard/ajax/progress.php';
-      }
-      return prefix2 + '/plugins/kbwizard/ajax/progress.php';
-    }
-    return '/plugins/kbwizard/ajax/progress.php';
   }
 
   function getCsrfToken() {
@@ -560,21 +588,7 @@ var KBWizard = (function () {
   }
 
   function getAjaxBase() {
-    try {
-      if (typeof CFG_GLPI !== 'undefined' && CFG_GLPI.root_doc) return CFG_GLPI.root_doc;
-      if (typeof GLPI_CFG !== 'undefined' && GLPI_CFG.root_doc) return GLPI_CFG.root_doc;
-    } catch(e){}
-    var scripts = document.querySelectorAll('script[src*="/plugins/"], script[src*="/marketplace/"]');
-    for (var i=0;i<scripts.length;i++) {
-      var src = scripts[i].getAttribute('src') || '';
-      var m = src.match(/^(\/[^\/]+)?\/(plugins|marketplace)\//);
-      if (m && src.indexOf('kbwizard') !== -1) {
-        return (m[1]||'');
-      }
-    }
-    if (location.pathname.indexOf('/glpi/') !== -1) return '/glpi';
-    if (location.pathname.indexOf('/front/') !== -1) return location.pathname.split('/front')[0];
-    return '';
+    try { return kbwizardGetRootDoc(); } catch(e){ return ''; }
   }
 
   function fetchAndInjectBanner() {
@@ -584,8 +598,18 @@ var KBWizard = (function () {
     if (!kbId) return;
     if (window._kbwizardFetching) return;
     window._kbwizardFetching = true;
+    // Usa helper centralizado; tenta webDir preciso primeiro, depois fallback genérico
     var base = getAjaxBase();
-    var urls = [base + '/plugins/kbwizard/ajax/get_steps.php?knowbaseitems_id='+kbId, base + '/marketplace/kbwizard/ajax/get_steps.php?knowbaseitems_id='+kbId];
+    var webDir = '';
+    try { webDir = kbwizardGetWebDir(); } catch(e){}
+    var urls = [];
+    if (webDir) {
+      urls.push(webDir + '/ajax/get_steps.php?knowbaseitems_id='+kbId);
+      var other = kbwizardGetOtherWebDir(webDir);
+      if (other !== webDir) urls.push(other + '/ajax/get_steps.php?knowbaseitems_id='+kbId);
+    }
+    urls.push(base + '/plugins/kbwizard/ajax/get_steps.php?knowbaseitems_id='+kbId);
+    urls.push(base + '/marketplace/kbwizard/ajax/get_steps.php?knowbaseitems_id='+kbId);
     urls = urls.filter(function(v,i,a){ return a.indexOf(v)===i; });
     function tryFetch(idx) {
       if (idx >= urls.length) { window._kbwizardFetching = false; return; }
@@ -623,6 +647,8 @@ var KBWizard = (function () {
     dataDiv.setAttribute('data-allow-jump', data.allow_jump ? '1':'0');
     dataDiv.setAttribute('data-show-progress', data.show_progress ? '1':'0');
     dataDiv.setAttribute('data-require-seq', data.require_sequential ? '1' : (data.require_seq ? '1' : '0'));
+    try { dataDiv.setAttribute('data-webdir', kbwizardGetWebDir()); } catch(e){}
+    try { dataDiv.setAttribute('data-root-doc', kbwizardGetRootDoc()); } catch(e){}
     document.body.appendChild(dataDiv);
 
     var banner = document.createElement('div');

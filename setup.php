@@ -4,6 +4,11 @@
  * GLPI 11.0.6 - v1.0.21 fix corte tablet
  */
 
+// Carrega Toolbox central (evita divergência plugins/marketplace); fallback silencioso se GLPI ainda não carregou
+if (is_file(__DIR__ . '/inc/toolbox.class.php')) {
+    require_once __DIR__ . '/inc/toolbox.class.php';
+}
+
 if (!defined('PLUGIN_KBWIZARD_VERSION')) {
     define('PLUGIN_KBWIZARD_VERSION', '1.0.21');
 }
@@ -31,6 +36,10 @@ function plugin_kbwizard_check_prerequisites() { return version_compare(PHP_VERS
 function plugin_kbwizard_check_config($verbose=false){ global $DB; if($verbose && $DB && !$DB->tableExists('glpi_plugin_kbwizard_configs')){ echo __('Tabelas não encontradas. Reinstale.', 'kbwizard'); return false; } return true; }
 
 function plugin_kbwizard_get_webdir() {
+    if (class_exists('PluginKbwizardToolbox')) {
+        return PluginKbwizardToolbox::getWebDir();
+    }
+    // Fallback se Toolbox ainda não carregado (instalação antiga)
     try {
         $phpDir = Plugin::getPhpDir('kbwizard');
         if (strpos($phpDir, 'marketplace') !== false) { global $CFG_GLPI; return ($CFG_GLPI['root_doc'] ?? '') . '/marketplace/kbwizard'; }
@@ -49,9 +58,15 @@ function plugin_init_kbwizard() {
     Plugin::registerClass('PluginKbwizardConfig', ['addtabon' => 'KnowbaseItem']);
     Plugin::registerClass('PluginKbwizardStep');
     Plugin::registerClass('PluginKbwizardProgress');
+    if (class_exists('PluginKbwizardToolbox')) {
+        Plugin::registerClass('PluginKbwizardToolbox');
+    }
     $webDir = plugin_kbwizard_get_webdir();
-    $PLUGIN_HOOKS['add_css']['kbwizard'] = $webDir . '/css/kbwizard.css';
-    $PLUGIN_HOOKS['add_javascript']['kbwizard'] = $webDir . '/js/kbwizard.js';
+    $suffix = class_exists('PluginKbwizardToolbox') ? PluginKbwizardToolbox::getVersionedSuffix() : '?v=' . PLUGIN_KBWIZARD_VERSION;
+    // Assets com cache busting; GLPI já faz deduplicação, mas versionamento evita cache antigo após update
+    // Mantém registro global (GLPI não suporta condicional por hook), mas template faz fallback inline se 404
+    $PLUGIN_HOOKS['add_css']['kbwizard'] = $webDir . '/css/kbwizard.css' . $suffix;
+    $PLUGIN_HOOKS['add_javascript']['kbwizard'] = $webDir . '/js/kbwizard.js' . $suffix;
     $PLUGIN_HOOKS['post_show_item']['kbwizard'] = 'plugin_kbwizard_post_show_item';
     $PLUGIN_HOOKS['post_show_tab']['kbwizard'] = 'plugin_kbwizard_post_show_item';
     $PLUGIN_HOOKS['config_page']['kbwizard'] = 'front/config.php';
@@ -64,17 +79,28 @@ function plugin_kbwizard_post_show_item($params) {
         if (isset($params['item']) && ($params['item'] instanceof KnowbaseItem)) $isKbPage = true;
         else if (isset($_SERVER['REQUEST_URI']) && strpos($_SERVER['REQUEST_URI'], 'knowbaseitem') !== false) $isKbPage = true;
         if ($isKbPage) {
-            $webDir = plugin_kbwizard_get_webdir();
-            $otherDir = (strpos($webDir, 'marketplace') !== false) ? str_replace('marketplace','plugins',$webDir) : str_replace('plugins','marketplace',$webDir);
+            if (class_exists('PluginKbwizardToolbox')) {
+                $webDir = PluginKbwizardToolbox::getWebDir();
+                $otherDir = PluginKbwizardToolbox::getOtherWebDir();
+                $suffix = PluginKbwizardToolbox::getVersionedSuffix();
+            } else {
+                $webDir = plugin_kbwizard_get_webdir();
+                $otherDir = (strpos($webDir, 'marketplace') !== false) ? str_replace('marketplace','plugins',$webDir) : str_replace('plugins','marketplace',$webDir);
+                $suffix = '?v=' . PLUGIN_KBWIZARD_VERSION;
+            }
+            // Usa json_encode para escapar corretamente (evita XSS se root_doc contiver aspas)
+            $webDirJs = json_encode($webDir, JSON_UNESCAPED_SLASHES);
+            $otherDirJs = json_encode($otherDir, JSON_UNESCAPED_SLASHES);
+            $suffixJs = json_encode($suffix, JSON_UNESCAPED_SLASHES);
             echo Html::scriptBlock("
                 (function(){
-                    var webDir='". $webDir ."',otherDir='". $otherDir ."';
+                    var webDir=".$webDirJs.",otherDir=".$otherDirJs.",suffix=".$suffixJs.";
                     function ensureCss(){
                         var has=false; for(var i=0;i<document.styleSheets.length;i++){ try{ if(document.styleSheets[i].href && document.styleSheets[i].href.indexOf('kbwizard.css')!==-1) has=true; }catch(e){} }
-                        if(!has){ var l=document.createElement('link'); l.rel='stylesheet'; l.href=webDir+'/css/kbwizard.css'; l.onerror=function(){ var l2=document.createElement('link'); l2.rel='stylesheet'; l2.href=otherDir+'/css/kbwizard.css'; document.head.appendChild(l2); }; document.head.appendChild(l); }
+                        if(!has){ var l=document.createElement('link'); l.rel='stylesheet'; l.href=webDir+'/css/kbwizard.css'+suffix; l.onerror=function(){ var l2=document.createElement('link'); l2.rel='stylesheet'; l2.href=otherDir+'/css/kbwizard.css'+suffix; document.head.appendChild(l2); }; document.head.appendChild(l); }
                     }
                     function ensureJs(){
-                        if(typeof KBWizard==='undefined'){ var s=document.createElement('script'); s.src=webDir+'/js/kbwizard.js'; s.onerror=function(){ var s2=document.createElement('script'); s2.src=otherDir+'/js/kbwizard.js'; document.head.appendChild(s2); }; document.head.appendChild(s); }
+                        if(typeof KBWizard==='undefined'){ var s=document.createElement('script'); s.src=webDir+'/js/kbwizard.js'+suffix; s.onerror=function(){ var s2=document.createElement('script'); s2.src=otherDir+'/js/kbwizard.js'+suffix; document.head.appendChild(s2); }; document.head.appendChild(s); }
                     }
                     if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ ensureCss(); ensureJs(); }); else { ensureCss(); ensureJs(); }
                 })();
@@ -119,7 +145,11 @@ function plugin_kbwizard_post_show_item($params) {
             }
         }
     } catch (Throwable $e) {
-        if (function_exists('error_log')) error_log('[kbwizard] post_show_item erro: ' . $e->getMessage());
-        try { if (class_exists('Toolbox')) Toolbox::logInFile('kbwizard', 'post_show_item erro: '.$e->getMessage()."\n".$e->getTraceAsString()); } catch(Throwable $e2){}
+        if (class_exists('PluginKbwizardToolbox')) {
+            PluginKbwizardToolbox::log('post_show_item erro: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+        } else {
+            if (function_exists('error_log')) error_log('[kbwizard] post_show_item erro: ' . $e->getMessage());
+            try { if (class_exists('Toolbox')) Toolbox::logInFile('kbwizard', 'post_show_item erro: '.$e->getMessage()."\n".$e->getTraceAsString()); } catch(Throwable $e2){}
+        }
     }
 }

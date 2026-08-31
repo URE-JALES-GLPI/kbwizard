@@ -55,37 +55,43 @@ class PluginKbwizardStep extends CommonDBTM {
 
         // Modo automático: parseia o answer e aplica títulos editáveis (auto_titles)
         $steps = self::parseAnswerToSteps($answer, $delimiter);
-        // Aplica overrides de título editáveis se existirem em glpi_plugin_kbwizard_configs.auto_titles
-        // FIX: não depende só de fieldExists (pode estar cacheado); tenta ler e loga se aplicar
+        // Aplica overrides de título editáveis (auto_titles) com cache de schema para evitar query repetida
         try {
             if ($DB && $DB->tableExists('glpi_plugin_kbwizard_configs')) {
-                // Garante coluna existe (on-the-fly para quem salvou antes da migration)
-                if (!$DB->fieldExists('glpi_plugin_kbwizard_configs', 'auto_titles')) {
-                    try { $DB->doQuery("ALTER TABLE `glpi_plugin_kbwizard_configs` ADD COLUMN `auto_titles` TEXT DEFAULT NULL"); } catch (Throwable $e2) {}
+                static $hasAutoTitlesCol = null;
+                if ($hasAutoTitlesCol === null) {
+                    $hasAutoTitlesCol = $DB->fieldExists('glpi_plugin_kbwizard_configs', 'auto_titles');
+                    if (!$hasAutoTitlesCol) {
+                        try { $DB->doQuery("ALTER TABLE `glpi_plugin_kbwizard_configs` ADD COLUMN `auto_titles` TEXT DEFAULT NULL"); $hasAutoTitlesCol = true; } catch (Throwable $e2) {}
+                    }
                 }
-                $conf = new PluginKbwizardConfig();
-                if ($conf->getFromDBByCrit(['knowbaseitems_id' => $knowbaseitems_id])) {
-                    $raw = $conf->fields['auto_titles'] ?? '';
-                    if (!empty($raw)) {
-                        $overrides = json_decode($raw, true);
-                        if (is_array($overrides) && !empty($overrides)) {
-                            $applied = 0;
-                            foreach ($steps as $idx => &$st) {
-                                if (isset($overrides[$idx]) && trim((string)$overrides[$idx]) !== '') {
-                                    $st['title'] = trim((string)$overrides[$idx]);
-                                    $applied++;
+                if ($hasAutoTitlesCol) {
+                    $conf = new PluginKbwizardConfig();
+                    if ($conf->getFromDBByCrit(['knowbaseitems_id' => $knowbaseitems_id])) {
+                        $raw = $conf->fields['auto_titles'] ?? '';
+                        if (!empty($raw)) {
+                            $overrides = json_decode($raw, true);
+                            if (is_array($overrides) && !empty($overrides)) {
+                                $applied = 0;
+                                foreach ($steps as $idx => &$st) {
+                                    if (isset($overrides[$idx]) && trim((string)$overrides[$idx]) !== '') {
+                                        $st['title'] = trim((string)$overrides[$idx]);
+                                        $applied++;
+                                    }
                                 }
-                            }
-                            unset($st);
-                            if ($applied > 0) {
-                                try { Toolbox::logInFile('kbwizard', "auto_titles aplicados kb=$knowbaseitems_id applied=$applied"); } catch (Throwable $e3) {}
+                                unset($st);
+                                if ($applied > 0 && class_exists('PluginKbwizardToolbox')) {
+                                    PluginKbwizardToolbox::log("auto_titles aplicados kb=$knowbaseitems_id applied=$applied");
+                                }
                             }
                         }
                     }
                 }
             }
         } catch (Throwable $e) {
-            try { Toolbox::logInFile('kbwizard', 'getStepsForItem auto_titles erro: '.$e->getMessage()); } catch (Throwable $e2) {}
+            if (class_exists('PluginKbwizardToolbox')) {
+                PluginKbwizardToolbox::log('getStepsForItem auto_titles erro: '.$e->getMessage());
+            }
         }
         return $steps;
     }
@@ -242,14 +248,16 @@ class PluginKbwizardStep extends CommonDBTM {
             return;
         }
 
-        // Resolve WebDir com fallback
-        $webDir = '';
-        try {
-            $webDir = Plugin::getWebDir('kbwizard');
-        } catch (Throwable $e) {
-            $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard';
-            if (!is_dir(GLPI_ROOT . '/plugins/kbwizard')) {
-                $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/marketplace/kbwizard';
+        // Resolve WebDir via Toolbox central
+        $webDir = class_exists('PluginKbwizardToolbox') ? PluginKbwizardToolbox::getWebDir() : '';
+        if (empty($webDir)) {
+            try {
+                $webDir = Plugin::getWebDir('kbwizard');
+            } catch (Throwable $e) {
+                $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard';
+                if (defined('GLPI_ROOT') && !is_dir(GLPI_ROOT . '/plugins/kbwizard')) {
+                    $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/marketplace/kbwizard';
+                }
             }
         }
 
@@ -339,12 +347,14 @@ class PluginKbwizardStep extends CommonDBTM {
         $content = $this->fields['content'] ?? '';
         $rank = $this->fields['rank'] ?? '';
 
-        // WebDir fallback
-        $webDir = '';
-        try {
-            $webDir = Plugin::getWebDir('kbwizard');
-        } catch (Throwable $e) {
-            $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard';
+        // WebDir via Toolbox central
+        $webDir = class_exists('PluginKbwizardToolbox') ? PluginKbwizardToolbox::getWebDir() : '';
+        if (empty($webDir)) {
+            try {
+                $webDir = Plugin::getWebDir('kbwizard');
+            } catch (Throwable $e) {
+                $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard';
+            }
         }
 
         echo "<form method='post' action='".$webDir."/front/step.form.php'>";
