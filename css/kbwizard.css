@@ -2,6 +2,20 @@
 #kbwizard-banner {
   border-left: 4px solid #206bc4;
   animation: kbwizard-slide-in .4s ease;
+  /* FIX 1.0.22: banner deve ocupar linha inteira no topo, nunca virar coluna lateral.
+     Se o JS inserir o banner dentro de um parent flex-row (ex: primeiro h1/.card
+     da página em vez do artigo), sem isso ele estica na vertical e fica
+     "gigantesco na direita acompanhando o artigo". */
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  flex: 0 0 100%;
+  flex-basis: 100%;
+  align-self: stretch;
+  grid-column: 1 / -1;
+  clear: both;
+  float: none;
+  box-sizing: border-box;
 }
 @keyframes kbwizard-slide-in {
   from { opacity:0; transform: translateY(-8px); }

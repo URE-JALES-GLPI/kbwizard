@@ -28,7 +28,9 @@ $__kbwizardRootDoc = class_exists('PluginKbwizardToolbox') ? PluginKbwizardToolb
 if ($cssInline) {
     // Banner fixo no topo, sem sticky (não acompanha scroll, não sobrepõe menus)
     // Pulse só se usuário não prefere reduced motion
-    $cssInline .= "\n#kbwizard-banner{position:relative;top:auto;z-index:1; border-left:5px solid #206bc4; box-shadow:0 4px 16px rgba(32,107,196,.12); margin-bottom:18px;} @media (prefers-reduced-motion: no-preference) { #kbwizard-banner .btn-primary{animation:kbwizard-pulse 2s infinite} @keyframes kbwizard-pulse{0%{box-shadow:0 0 0 0 rgba(32,107,196,.4)}70%{box-shadow:0 0 0 10px rgba(32,107,196,0)}100%{box-shadow:0 0 0 0 rgba(32,107,196,0)}} }";
+    // FIX 1.0.22: enforcement inline de largura total (anti-flex-row) — mesmo com
+    // CSS antigo em cache, o banner nunca vira coluna lateral esticada.
+    $cssInline .= "\n#kbwizard-banner{position:relative;top:auto;z-index:1;display:block;width:100%;max-width:100%;flex:0 0 100%;flex-basis:100%;align-self:stretch;grid-column:1 / -1;clear:both;float:none;box-sizing:border-box;border-left:5px solid #206bc4; box-shadow:0 4px 16px rgba(32,107,196,.12); margin-bottom:18px;} @media (prefers-reduced-motion: no-preference) { #kbwizard-banner .btn-primary{animation:kbwizard-pulse 2s infinite} @keyframes kbwizard-pulse{0%{box-shadow:0 0 0 0 rgba(32,107,196,.4)}70%{box-shadow:0 0 0 10px rgba(32,107,196,0)}100%{box-shadow:0 0 0 0 rgba(32,107,196,0)}} }";
     echo '<style>'.$cssInline.'</style>';
 } else {
     echo '<style>#kbwizard-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px}#kbwizard-modal{background:#fff;border-radius:12px;max-width:1100px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)} #kbwizard-banner{position:relative;}</style>';
@@ -145,27 +147,121 @@ if ($jsInline) {
     var rect = el.getBoundingClientRect();
     return rect.top >= 0 && rect.top < window.innerHeight && rect.left >=0;
   }
+  function enforceBannerFullWidth(banner){
+    // FIX 1.0.22: garante que o banner ocupe a linha inteira mesmo se o parent
+    // for flex-row (caso que deixava ele "gigantesco na direita"). Roda sempre,
+    // antes e depois do move, e sobrevive a CSS antigo em cache.
+    try{
+      banner.style.display='block';
+      banner.style.width='100%';
+      banner.style.maxWidth='100%';
+      banner.style.flex='0 0 100%';
+      banner.style.flexBasis='100%';
+      banner.style.alignSelf='stretch';
+      banner.style.boxSizing='border-box';
+      banner.style.clear='both';
+      banner.style.float='none';
+    }catch(e){}
+  }
+  function findArticleCard(banner){
+    // 1) Caminho mais confiável: o hook post_show_item imprime o banner LOGO APÓS
+    // o artigo, no mesmo parent. Então o card do artigo é um irmão anterior.
+    try{
+      var parent = banner.parentNode;
+      if(parent){
+        var prev = banner.previousElementSibling;
+        var stepsBack = 0;
+        while(prev && stepsBack < 12){
+          try{
+            if(prev.classList && prev.classList.contains('card')){
+              // Aceita se parece artigo: contém resposta/título KB ou é o card principal
+              var looksLikeArticle = false;
+              try{
+                if(prev.querySelector('.knowbaseitem-answer, .knowbaseitem, .knowbaseitem__content')) looksLikeArticle = true;
+                else if(prev.querySelector('.card-header, h1')) looksLikeArticle = true;
+              }catch(e2){}
+              if(looksLikeArticle) return prev;
+            }
+          }catch(e3){}
+          prev = prev.previousElementSibling;
+          stepsBack++;
+        }
+      }
+    }catch(e){}
+    // 2) Seletores específicos do artigo (NUNCA h1 genérico primeiro — era o bug:
+    // o primeiro h1/.card-header da página podia ser da navbar/lateral e o banner
+    // era inserido antes do card errado, virando coluna lateral esticada).
+    var specific = [
+      '.knowbaseitem-answer',
+      '.knowbaseitem',
+      '.knowbaseitem__content',
+      '[id*="knowbase"]'
+    ];
+    for(var i=0;i<specific.length;i++){
+      try{
+        var el = document.querySelector(specific[i]);
+        if(el){
+          var card = null;
+          try{ if(el.closest) card = el.closest('.card'); }catch(e){}
+          if(card) return card;
+          if(el.parentNode) return el;
+        }
+      }catch(e){}
+    }
+    // 3) Último recurso: primeiro .card dentro de main/#page (container de conteúdo,
+    // largura total — nunca um card de sidebar).
+    try{
+      var main = document.querySelector('main') || document.querySelector('#page') || document.body;
+      if(main){
+        var firstCard = main.querySelector(':scope > .card, :scope > div > .card');
+        if(firstCard) return firstCard;
+        var anyCard = main.querySelector('.card');
+        if(anyCard){
+          // Evita cards estreitos de sidebar: só aceita se largura > 60% do main
+          try{
+            var mw = main.getBoundingClientRect().width;
+            var cw = anyCard.getBoundingClientRect().width;
+            if(mw <= 0 || cw >= mw * 0.6) return anyCard;
+          }catch(e){ return anyCard; }
+        }
+        return null;
+      }
+    }catch(e){}
+    return null;
+  }
   function moveBannerToTop(){
     var banner=document.getElementById('kbwizard-banner');
     if(!banner) return;
-    var article = document.querySelector('.knowbaseitem, .knowbaseitem__content, main .card, #page .card, .card-body');
-    var target = document.querySelector('h1') || document.querySelector('.card-header') || article;
-    if(target && target.parentNode){
-      if(banner.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING){
-        // já antes
-      } else {
-        try{
-          var container = target.closest('.card') || target.closest('#page') || document.querySelector('#page') || document.body;
-          if(container && container.parentNode){
-            container.parentNode.insertBefore(banner, container);
-          } else {
-            document.body.insertBefore(banner, document.body.firstChild);
-          }
+    enforceBannerFullWidth(banner);
+    var articleCard = findArticleCard(banner);
+    if(articleCard && articleCard.parentNode){
+      try{
+        // Já está antes? (banner imediatamente anterior ao card do artigo)
+        if(articleCard.previousElementSibling === banner){
+          // já no lugar
+        } else if(banner.compareDocumentPosition(articleCard) & Node.DOCUMENT_POSITION_FOLLOWING){
+          // banner já vem antes do card em ordem de documento — só garante ordem exata
+          articleCard.parentNode.insertBefore(banner, articleCard);
           console.log('[KBWizard] banner movido para o topo');
-        }catch(e){ console.warn('[KBWizard] falha ao mover banner',e); }
-      }
+        } else {
+          articleCard.parentNode.insertBefore(banner, articleCard);
+          console.log('[KBWizard] banner movido para o topo');
+        }
+      }catch(e){ console.warn('[KBWizard] falha ao mover banner',e); }
+    } else {
+      // Sem card identificado: garante ao menos que saia de dentro de flex-row lateral.
+      // Prepend no main/#page (container full-width) em vez de body.firstChild.
+      try{
+        var mainFallback = document.querySelector('main') || document.querySelector('#page');
+        if(mainFallback && banner.parentNode !== mainFallback){
+          if(mainFallback.firstChild) mainFallback.insertBefore(banner, mainFallback.firstChild);
+          else mainFallback.appendChild(banner);
+          console.log('[KBWizard] banner movido para main/#page (fallback)');
+        }
+      }catch(e){ console.warn('[KBWizard] falha no fallback do banner',e); }
     }
-    banner.style.display='';
+    enforceBannerFullWidth(banner);
+    banner.style.display='block';
     // Só rola se banner estiver fora da viewport e usuário ainda no topo da página (não interrompe leitura)
     // Evita scroll duplo e respeita reduced-motion
     if (!isInViewport(banner) && window.scrollY < 400) {

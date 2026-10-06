@@ -1,7 +1,7 @@
 <?php
 /**
  * KB Wizard - Passo a Passo para Base de Conhecimento
- * GLPI 11.0.6 - v1.0.21 fix corte tablet
+ * GLPI 11.0.6 - v1.0.22 fix banner lateral
  */
 
 // Carrega Toolbox central (evita divergência plugins/marketplace); fallback silencioso se GLPI ainda não carregou
@@ -10,7 +10,7 @@ if (is_file(__DIR__ . '/inc/toolbox.class.php')) {
 }
 
 if (!defined('PLUGIN_KBWIZARD_VERSION')) {
-    define('PLUGIN_KBWIZARD_VERSION', '1.0.21');
+    define('PLUGIN_KBWIZARD_VERSION', '1.0.22');
 }
 if (!defined('PLUGIN_KBWIZARD_MIN_GLPI')) {
     define('PLUGIN_KBWIZARD_MIN_GLPI', '11.0');

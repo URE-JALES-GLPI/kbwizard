@@ -1,5 +1,5 @@
 /**
- * KB Wizard - Lógica do Passo a Passo - v1.0.22 toolbox central
+ * KB Wizard - Lógica do Passo a Passo - v1.0.22 fix banner lateral
  * Fix: require_sequential, focus trap, aria, reduced-motion, finish UX + DRY webdir
  */
 // Helpers centralizados (usados por KBWizard e fallback) - evitam duplicação plugins/marketplace
@@ -656,13 +656,47 @@ var KBWizard = (function () {
     banner.className = 'card border-primary mb-3 shadow-sm';
     banner.setAttribute('role', 'region');
     banner.setAttribute('aria-label', 'Guia passo a passo');
+    // FIX 1.0.22: enforcement inline anti-flex-row (mesmo com CSS antigo em cache,
+    // o fallback AJAX nunca vira coluna lateral esticada).
+    try {
+      banner.style.display = 'block';
+      banner.style.width = '100%';
+      banner.style.maxWidth = '100%';
+      banner.style.flex = '0 0 100%';
+      banner.style.flexBasis = '100%';
+      banner.style.alignSelf = 'stretch';
+      banner.style.boxSizing = 'border-box';
+      banner.style.clear = 'both';
+      banner.style.float = 'none';
+    } catch(e){}
     banner.innerHTML = '<div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">'
       + '<div class="d-flex align-items-center gap-3"><div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width:48px;height:48px;" aria-hidden="true"><i class="ti ti-list-check" style="font-size:24px"></i></div><div><h4 class="mb-0">Guia Passo a Passo</h4><small class="text-muted">Este artigo tem '+total+' passos. Siga no seu ritmo sem se perder!</small></div></div>'
       + '<div class="d-flex gap-2"><button id="kbwizard-start-btn" class="btn btn-primary btn-lg" aria-label="'+ (current>0 ? 'Continuar de onde parou, passo '+(current+1)+' de '+total : 'Iniciar passo a passo, '+total+' passos') +'"><i class="ti ti-player-play me-1" aria-hidden="true"></i>'+ (current>0 ? 'Continuar de onde parei ('+(current+1)+'/'+total+')' : 'Iniciar Passo a Passo') +'</button><button id="kbwizard-toggle-original" class="btn btn-outline-secondary"><i class="ti ti-article me-1" aria-hidden="true"></i>Ver artigo completo</button></div></div>'
       + (data.show_progress && current>0 ? '<div class="card-footer p-0"><div class="progress" style="height:6px" role="progressbar" aria-valuenow="'+Math.round((current/total)*100)+'" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar bg-success" style="width:'+Math.round((current/total)*100)+'%"></div></div></div>' : '');
-    var target = document.querySelector('.knowbaseitem, #main, .card');
+    // FIX 1.0.22: alvo determinístico — nunca o primeiro .card genérico (podia ser
+    // sidebar e o banner virava coluna lateral "gigantesca"). Prioriza seletores do
+    // artigo; fallback é prepend no main/#page (full-width).
+    var target = null;
+    try {
+      var specifics = ['.knowbaseitem-answer', '.knowbaseitem', '.knowbaseitem__content'];
+      for (var ti = 0; ti < specifics.length; ti++) {
+        var selEl = document.querySelector(specifics[ti]);
+        if (selEl) {
+          var selCard = null;
+          try { if (selEl.closest) selCard = selEl.closest('.card'); } catch(e){}
+          target = selCard || selEl;
+          break;
+        }
+      }
+    } catch(e){}
     if (target && target.parentNode) target.parentNode.insertBefore(banner, target);
-    else document.body.insertBefore(banner, document.body.firstChild);
+    else {
+      var mainFb = document.querySelector('main') || document.querySelector('#page');
+      if (mainFb) {
+        if (mainFb.firstChild) mainFb.insertBefore(banner, mainFb.firstChild);
+        else mainFb.appendChild(banner);
+      } else document.body.insertBefore(banner, document.body.firstChild);
+    }
 
     if (!document.getElementById('kbwizard-overlay')) {
       var overlay = document.createElement('div');

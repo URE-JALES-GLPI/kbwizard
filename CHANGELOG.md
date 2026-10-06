@@ -1,6 +1,13 @@
 # Changelog
 
-## 1.0.21 - 2026-08-26 Fix corte tablet — ATUAL
+## 1.0.22 - 2026-10-05 Fix banner lateral gigante — ATUAL
+- **Bug**: em 1 artigo o banner ficava na direita esticado acompanhando o artigo em vez de em cima. Causa: `templates/wizard_banner.html.php` usava `querySelector('h1') || .card-header` genérico — se o primeiro h1/card era da navbar/lateral, o banner era inserido antes do card errado dentro de um parent `flex-row` e esticava na vertical. Sem `width:100%` nada impedia
+- **Fix**: `css/kbwizard.css:2` `#kbwizard-banner` agora `display:block;width:100%;flex:0 0 100%;flex-basis:100%;grid-column:1/-1` + enforcement inline no template (sobrevive a cache velho)
+- **Fix**: `templates/wizard_banner.html.php:150` novo `enforceBannerFullWidth()` + `findArticleCard()` — procura irmão anterior `.card` do artigo, depois seletores específicos `.knowbaseitem-answer/.knowbaseitem`, fallback prepend em `main/#page`; nunca mais `h1` genérico primeiro
+- **Fix**: `js/kbwizard.js:injectBanner` mesmo alvo determinístico + estilos inline anti-flex para o fallback AJAX
+- **Compat**: `setup.php:8` bump `1.0.21 → 1.0.22`, `composer.json:6` alinhado (alinha com header JS que já dizia 1.0.22)
+
+## 1.0.21 - 2026-08-26 Fix corte tablet
 - **Fix**: `css/kbwizard.css:340` tablet `768px` overlay agora `align-items:flex-start` + `overflow-y:auto` e modal `calc(100dvh - 16px)` com `margin:auto 0`, `header/progress/footer` `flex-shrink:0`, `body` flex, sidebar `120px` — botão fechar e header não cortam mais; `480px` ajustado para `dvh` e `42vw` badge
 - **Compat**: `setup.php:8` bump `1.0.20 → 1.0.21`, `composer.json:6` alinhado
 
