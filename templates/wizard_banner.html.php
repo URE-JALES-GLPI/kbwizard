@@ -16,10 +16,11 @@ if (class_exists('PluginKbwizardToolbox')) {
     $jsInline = PluginKbwizardToolbox::getJsInline();
 } else {
     $cssInline = '';
-    $cssPaths = [__DIR__ . '/../css/kbwizard.css', GLPI_ROOT . '/plugins/kbwizard/css/kbwizard.css', GLPI_ROOT . '/marketplace/kbwizard/css/kbwizard.css'];
+    // GLPI 11+: assets em public/ — checa public/ primeiro, legado css/ como secundário
+    $cssPaths = [__DIR__ . '/../public/css/kbwizard.css', __DIR__ . '/../css/kbwizard.css', GLPI_ROOT . '/plugins/kbwizard/public/css/kbwizard.css', GLPI_ROOT . '/marketplace/kbwizard/public/css/kbwizard.css', GLPI_ROOT . '/plugins/kbwizard/css/kbwizard.css', GLPI_ROOT . '/marketplace/kbwizard/css/kbwizard.css'];
     foreach ($cssPaths as $p) { if (is_file($p)) { $cssInline = @file_get_contents($p); break; } }
     $jsInline = '';
-    $jsPaths = [__DIR__ . '/../js/kbwizard.js', GLPI_ROOT . '/plugins/kbwizard/js/kbwizard.js', GLPI_ROOT . '/marketplace/kbwizard/js/kbwizard.js'];
+    $jsPaths = [__DIR__ . '/../public/js/kbwizard.js', __DIR__ . '/../js/kbwizard.js', GLPI_ROOT . '/plugins/kbwizard/public/js/kbwizard.js', GLPI_ROOT . '/marketplace/kbwizard/public/js/kbwizard.js', GLPI_ROOT . '/plugins/kbwizard/js/kbwizard.js', GLPI_ROOT . '/marketplace/kbwizard/js/kbwizard.js'];
     foreach ($jsPaths as $p) { if (is_file($p)) { $jsInline = @file_get_contents($p); break; } }
 }
 // WebDir para JS fallback (evita lógica duplicada no browser)

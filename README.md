@@ -1,4 +1,4 @@
-# KB Wizard — Passo a Passo para Base de Conhecimento (GLPI 11.06)
+# KB Wizard — Passo a Passo para Base de Conhecimento (GLPI 11.0 a 12.0)
 
 Transforma qualquer artigo da **Base de Conhecimento** em um **guia guiado passo a passo** para que técnicos novos não se percam no texto corrido.
 
@@ -14,7 +14,7 @@ Transforma qualquer artigo da **Base de Conhecimento** em um **guia guiado passo
 - Fallback inteligente: se modo manual estiver vazio, usa automático.
 - Design responsivo e acessível, foco total no passo atual.
 
-## 📦 Instalação (GLPI 11.0.x - testado em 11.06)
+## 📦 Instalação (GLPI 11.0 a 12.0 - testado em 11.06)
 
 1. Copie a pasta `kbwizard` para `glpi/plugins/` ou `glpi/marketplace/` (depende da sua instalação):
    ```
@@ -22,11 +22,13 @@ Transforma qualquer artigo da **Base de Conhecimento** em um **guia guiado passo
    └── plugins/
        └── kbwizard/
            ├── setup.php
-           ├── css/
-           ├── js/
+           ├── public/
+           │   ├── css/
+           │   └── js/
            └── ...
    ```
    *Em algumas instalações GLPI 11 o diretório correto é `marketplace/kbwizard`.*
+   *Copie a pasta COMPLETA: os assets ficam em `public/` com css/js dentro — cópias parciais de apenas `css/` + `js/` não funcionam mais.*
 
 2. No GLPI: **Configurar > Plugins** → encontre **KB Wizard - Passo a Passo** → **Instalar** → **Ativar**.
 
@@ -88,8 +90,8 @@ Testar conectividade...
 Desinstalar remove as tabelas.
 
 ## 🎨 Customização
-- `css/kbwizard.css` — cores, radius, layout. Altere `--kbwizard-primary` se quiser.
-- `js/kbwizard.js` — lógica; expõe `KBWizard` global (`open`, `close`, `next`, `prev`, `goTo`, `reset`).
+- `public/css/kbwizard.css` — cores, radius, layout. Altere `--kbwizard-primary` se quiser.
+- `public/js/kbwizard.js` — lógica; expõe `KBWizard` global (`open`, `close`, `next`, `prev`, `goTo`, `reset`).
 - Template do banner/modal: `templates/wizard_banner.html.php`.
 
 ## ❓ FAQ
@@ -101,7 +103,7 @@ Desinstalar remove as tabelas.
 **Tenho 10 artigos antigos sem `<hr>`.** Use modo `hr_h2` (detecta ambos) ou clique em “Gerar a partir do artigo” no modo manual e ajuste.
 
 ## 📋 Compatibilidade
-- GLPI `11.0` → `11.1` (testado em **11.06**)
+- GLPI `11.0` → `12.0` (migrado para 12.0; testado em **11.06**)
 - PHP `>= 8.2`
 - Não requer dependências composer.
 

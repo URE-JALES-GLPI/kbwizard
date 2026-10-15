@@ -1,6 +1,17 @@
 # Changelog
 
-## 1.0.22 - 2026-10-05 Fix banner lateral gigante — ATUAL
+## 1.1.0 - 2026-10-15 Migração GLPI 12 — ATUAL
+- **Compat**: `setup.php:13` bump `1.0.22 → 1.1.0`, requirements GLPI min `11.0.0` / max `12.0.99`, PHP `>= 8.2`; `composer.json:6` alinhado
+- **Compat GLPI 12 CSRF**: `setup.php:59` hook `csrf_compliant` registrado apenas em GLPI < 12 (no 12 o CheckCsrfListener valida headers); validação manual em `front/config.php`, `front/step.form.php` e `ajax/progress.php` virou defensiva (`method_exists('Session', 'checkCSRF')`)
+- **Compat GLPI 12 webdir**: removidas chamadas a `Plugin::getWebDir()` (API removida no 12) em `inc/config.class.php`, `inc/step.class.php`; webdir deriva de Toolbox/root_doc
+- **Assets**: `css/` e `js/` movidos para `public/css/` e `public/js/` (exigência GLPI 11+); `setup.php:70` hooks `add_css`/`add_javascript` registram caminhos relativos (`css/kbwizard.css`, `js/kbwizard.js`); fallback inline no banner tenta primeiro o caminho do router e depois o caminho com `/public/` explícito
+- **Compat GLPI 12 erro fatal**: `Html::displayErrorAndDie()` (removida no 12) substituída por mensagem + redirect em `front/config.php` e `front/step.form.php`
+- **Migração**: `setup.php:76` auto-migração silenciosa em plugin_init garante tabelas/colunas na primeira carga se o update foi por cópia de arquivos
+- **DB**: `hook.php` CREATE TABLE usa charset/collation padrão da conexão (`DBConnection::getDefaultCharset`/`getDefaultCollation`) em vez de utf8mb4 fixo; removido bloco morto "2.0.0 checkpoint"
+- **Auditoria**: assinaturas de métodos em `inc/*.class.php` verificadas — nenhuma incompatibilidade encontrada (parâmetros já compatíveis com pais tipados)
+- **Sem mudança de comportamento**: wizard (split, passos, progresso) intacto; autoload legado (`inc/`) mantido — migração PSR-4 não necessária
+
+## 1.0.22 - 2026-10-05 Fix banner lateral gigante
 - **Bug**: em 1 artigo o banner ficava na direita esticado acompanhando o artigo em vez de em cima. Causa: `templates/wizard_banner.html.php` usava `querySelector('h1') || .card-header` genérico — se o primeiro h1/card era da navbar/lateral, o banner era inserido antes do card errado dentro de um parent `flex-row` e esticava na vertical. Sem `width:100%` nada impedia
 - **Fix**: `css/kbwizard.css:2` `#kbwizard-banner` agora `display:block;width:100%;flex:0 0 100%;flex-basis:100%;grid-column:1/-1` + enforcement inline no template (sobrevive a cache velho)
 - **Fix**: `templates/wizard_banner.html.php:150` novo `enforceBannerFullWidth()` + `findArticleCard()` — procura irmão anterior `.card` do artigo, depois seletores específicos `.knowbaseitem-answer/.knowbaseitem`, fallback prepend em `main/#page`; nunca mais `h1` genérico primeiro

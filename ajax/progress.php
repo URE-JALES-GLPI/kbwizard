@@ -53,13 +53,18 @@ try {
         exit;
     }
 
-    // Verifica CSRF mas retorna JSON amigável em vez de die HTML que quebraria o loader
-    try {
-        Session::checkCSRF($_POST);
-    } catch (Throwable $e) {
-        http_response_code(403);
-        echo json_encode(['error' => 'CSRF invalid', 'msg' => $e->getMessage()]);
-        exit;
+    // CSRF defensivo dual GLPI 11/12: no 12 o hook csrf_compliant foi removido e o
+    // CheckCsrfListener valida headers; Session::checkCSRF está deprecated mas presente.
+    // Só valida manualmente se o método existir — ausência = confia no framework.
+    // Retorna JSON amigável em vez de die HTML que quebraria o loader.
+    if (method_exists('Session', 'checkCSRF')) {
+        try {
+            Session::checkCSRF($_POST);
+        } catch (Throwable $e) {
+            http_response_code(403);
+            echo json_encode(['error' => 'CSRF invalid', 'msg' => $e->getMessage()]);
+            exit;
+        }
     }
 
     global $DB;

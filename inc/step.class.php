@@ -249,15 +249,12 @@ class PluginKbwizardStep extends CommonDBTM {
         }
 
         // Resolve WebDir via Toolbox central
+        // GLPI 12 removeu o getter webdir do core — nunca chamar; deriva de root_doc
         $webDir = class_exists('PluginKbwizardToolbox') ? PluginKbwizardToolbox::getWebDir() : '';
         if (empty($webDir)) {
-            try {
-                $webDir = Plugin::getWebDir('kbwizard');
-            } catch (Throwable $e) {
-                $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard';
-                if (defined('GLPI_ROOT') && !is_dir(GLPI_ROOT . '/plugins/kbwizard')) {
-                    $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/marketplace/kbwizard';
-                }
+            $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard';
+            if (defined('GLPI_ROOT') && !is_dir(GLPI_ROOT . '/plugins/kbwizard')) {
+                $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/marketplace/kbwizard';
             }
         }
 
@@ -348,13 +345,10 @@ class PluginKbwizardStep extends CommonDBTM {
         $rank = $this->fields['rank'] ?? '';
 
         // WebDir via Toolbox central
+        // GLPI 12 removeu o getter webdir do core — nunca chamar; deriva de root_doc
         $webDir = class_exists('PluginKbwizardToolbox') ? PluginKbwizardToolbox::getWebDir() : '';
         if (empty($webDir)) {
-            try {
-                $webDir = Plugin::getWebDir('kbwizard');
-            } catch (Throwable $e) {
-                $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard';
-            }
+            $webDir = ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard';
         }
 
         echo "<form method='post' action='".$webDir."/front/step.form.php'>";

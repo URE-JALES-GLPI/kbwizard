@@ -1,7 +1,7 @@
 <?php
 /**
  * KB Wizard - Passo a Passo para Base de Conhecimento
- * GLPI 11.0.6 - v1.0.22 fix banner lateral
+ * GLPI 11.0 a 12.0 - v1.1.0
  */
 
 // Carrega Toolbox central (evita divergência plugins/marketplace); fallback silencioso se GLPI ainda não carregou
@@ -10,13 +10,13 @@ if (is_file(__DIR__ . '/inc/toolbox.class.php')) {
 }
 
 if (!defined('PLUGIN_KBWIZARD_VERSION')) {
-    define('PLUGIN_KBWIZARD_VERSION', '1.0.22');
+    define('PLUGIN_KBWIZARD_VERSION', '1.1.0');
 }
 if (!defined('PLUGIN_KBWIZARD_MIN_GLPI')) {
-    define('PLUGIN_KBWIZARD_MIN_GLPI', '11.0');
+    define('PLUGIN_KBWIZARD_MIN_GLPI', '11.0.0');
 }
 if (!defined('PLUGIN_KBWIZARD_MAX_GLPI')) {
-    define('PLUGIN_KBWIZARD_MAX_GLPI', '11.1');
+    define('PLUGIN_KBWIZARD_MAX_GLPI', '12.0.99');
 }
 
 function plugin_version_kbwizard() {
@@ -46,30 +46,113 @@ function plugin_kbwizard_get_webdir() {
         if (strpos($phpDir, 'plugins') !== false) { global $CFG_GLPI; return ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard'; }
     } catch (Throwable $e) {}
     if (defined('GLPI_ROOT')) {
-        if (is_file(GLPI_ROOT . '/marketplace/kbwizard/css/kbwizard.css')) { global $CFG_GLPI; return ($CFG_GLPI['root_doc'] ?? '') . '/marketplace/kbwizard'; }
-        if (is_file(GLPI_ROOT . '/plugins/kbwizard/css/kbwizard.css')) { global $CFG_GLPI; return ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard'; }
+        if (is_file(GLPI_ROOT . '/marketplace/kbwizard/public/css/kbwizard.css') || is_file(GLPI_ROOT . '/marketplace/kbwizard/css/kbwizard.css')) { global $CFG_GLPI; return ($CFG_GLPI['root_doc'] ?? '') . '/marketplace/kbwizard'; }
+        if (is_file(GLPI_ROOT . '/plugins/kbwizard/public/css/kbwizard.css') || is_file(GLPI_ROOT . '/plugins/kbwizard/css/kbwizard.css')) { global $CFG_GLPI; return ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard'; }
     }
     global $CFG_GLPI; return ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard';
 }
 
 function plugin_init_kbwizard() {
     global $PLUGIN_HOOKS;
-    $PLUGIN_HOOKS['csrf_compliant']['kbwizard'] = true;
+    // Hook csrf_compliant removido no GLPI 12 (CheckCsrfListener valida
+    // headers Sec-Fetch-Site/Origin); registra apenas no GLPI < 12
+    if (defined('GLPI_VERSION') ? version_compare(GLPI_VERSION, '12.0', '<') : true) {
+        $PLUGIN_HOOKS['csrf_compliant']['kbwizard'] = true;
+    }
     Plugin::registerClass('PluginKbwizardConfig', ['addtabon' => 'KnowbaseItem']);
     Plugin::registerClass('PluginKbwizardStep');
     Plugin::registerClass('PluginKbwizardProgress');
     if (class_exists('PluginKbwizardToolbox')) {
         Plugin::registerClass('PluginKbwizardToolbox');
     }
-    $webDir = plugin_kbwizard_get_webdir();
-    $suffix = class_exists('PluginKbwizardToolbox') ? PluginKbwizardToolbox::getVersionedSuffix() : '?v=' . PLUGIN_KBWIZARD_VERSION;
-    // Assets com cache busting; GLPI já faz deduplicação, mas versionamento evita cache antigo após update
-    // Mantém registro global (GLPI não suporta condicional por hook), mas template faz fallback inline se 404
-    $PLUGIN_HOOKS['add_css']['kbwizard'] = $webDir . '/css/kbwizard.css' . $suffix;
-    $PLUGIN_HOOKS['add_javascript']['kbwizard'] = $webDir . '/js/kbwizard.js' . $suffix;
+    // Assets ficam em public/ (exigência GLPI 11+); caminho registrado NÃO inclui
+    // "public/" — o GLPI resolve 'css/kbwizard.css' -> public/css/kbwizard.css
+    $PLUGIN_HOOKS['add_css']['kbwizard'] = 'css/kbwizard.css';
+    $PLUGIN_HOOKS['add_javascript']['kbwizard'] = 'js/kbwizard.js';
     $PLUGIN_HOOKS['post_show_item']['kbwizard'] = 'plugin_kbwizard_post_show_item';
     $PLUGIN_HOOKS['post_show_tab']['kbwizard'] = 'plugin_kbwizard_post_show_item';
     $PLUGIN_HOOKS['config_page']['kbwizard'] = 'front/config.php';
+
+    // Auto-migração silenciosa: protege updates por cópia de arquivos que nunca
+    // passam por Configurar > Plugins > Atualizar. Não usa Migration aqui para
+    // não interferir no fluxo normal de instalação.
+    try {
+        if (isset($GLOBALS['DB']) && $GLOBALS['DB'] instanceof DBmysql) {
+            $db = $GLOBALS['DB'];
+            $charset = DBConnection::getDefaultCharset();
+            $collation = DBConnection::getDefaultCollation();
+            $cfgTable = 'glpi_plugin_kbwizard_configs';
+            if (!$db->tableExists($cfgTable)) {
+                try {
+                    $db->doQuery("CREATE TABLE IF NOT EXISTS `$cfgTable` (
+                        `id` int unsigned NOT NULL AUTO_INCREMENT,
+                        `knowbaseitems_id` int unsigned NOT NULL,
+                        `is_active` tinyint(1) NOT NULL DEFAULT 0,
+                        `split_mode` varchar(20) NOT NULL DEFAULT 'auto',
+                        `auto_delimiter` varchar(20) NOT NULL DEFAULT 'marker',
+                        `show_progress` tinyint(1) NOT NULL DEFAULT 1,
+                        `allow_jump` tinyint(1) NOT NULL DEFAULT 1,
+                        `require_sequential` tinyint(1) NOT NULL DEFAULT 0,
+                        `auto_titles` text,
+                        `date_creation` timestamp NULL DEFAULT NULL,
+                        `date_mod` timestamp NULL DEFAULT NULL,
+                        PRIMARY KEY (`id`),
+                        UNIQUE KEY `knowbaseitems_id` (`knowbaseitems_id`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
+                } catch (Throwable $e) {}
+            } else {
+                if (!$db->fieldExists($cfgTable, 'allow_jump')) {
+                    try { $db->doQuery("ALTER TABLE `$cfgTable` ADD COLUMN `allow_jump` tinyint(1) NOT NULL DEFAULT 1"); } catch (Throwable $e) {}
+                }
+                if (!$db->fieldExists($cfgTable, 'show_progress')) {
+                    try { $db->doQuery("ALTER TABLE `$cfgTable` ADD COLUMN `show_progress` tinyint(1) NOT NULL DEFAULT 1"); } catch (Throwable $e) {}
+                }
+                if (!$db->fieldExists($cfgTable, 'require_sequential')) {
+                    try { $db->doQuery("ALTER TABLE `$cfgTable` ADD COLUMN `require_sequential` tinyint(1) NOT NULL DEFAULT 0"); } catch (Throwable $e) {}
+                }
+                if (!$db->fieldExists($cfgTable, 'auto_titles')) {
+                    try { $db->doQuery("ALTER TABLE `$cfgTable` ADD COLUMN `auto_titles` text"); } catch (Throwable $e) {}
+                }
+                if (!$db->indexExists($cfgTable, 'knowbaseitems_id')) {
+                    try { $db->doQuery("ALTER TABLE `$cfgTable` ADD UNIQUE KEY `knowbaseitems_id` (`knowbaseitems_id`)"); } catch (Throwable $e) {}
+                }
+            }
+            $stepsTable = 'glpi_plugin_kbwizard_steps';
+            if (!$db->tableExists($stepsTable)) {
+                try {
+                    $db->doQuery("CREATE TABLE IF NOT EXISTS `$stepsTable` (
+                        `id` int unsigned NOT NULL AUTO_INCREMENT,
+                        `knowbaseitems_id` int unsigned NOT NULL,
+                        `rank` int NOT NULL DEFAULT 0,
+                        `title` varchar(255) NOT NULL DEFAULT '',
+                        `content` mediumtext,
+                        `date_creation` timestamp NULL DEFAULT NULL,
+                        `date_mod` timestamp NULL DEFAULT NULL,
+                        PRIMARY KEY (`id`),
+                        KEY `knowbaseitems_id` (`knowbaseitems_id`),
+                        KEY `rank` (`rank`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
+                } catch (Throwable $e) {}
+            }
+            $progTable = 'glpi_plugin_kbwizard_progress';
+            if (!$db->tableExists($progTable)) {
+                try {
+                    $db->doQuery("CREATE TABLE IF NOT EXISTS `$progTable` (
+                        `id` int unsigned NOT NULL AUTO_INCREMENT,
+                        `knowbaseitems_id` int unsigned NOT NULL,
+                        `users_id` int unsigned NOT NULL,
+                        `current_step` int NOT NULL DEFAULT 0,
+                        `is_completed` tinyint(1) NOT NULL DEFAULT 0,
+                        `date_creation` timestamp NULL DEFAULT NULL,
+                        `date_mod` timestamp NULL DEFAULT NULL,
+                        PRIMARY KEY (`id`),
+                        UNIQUE KEY `unicity` (`knowbaseitems_id`,`users_id`),
+                        KEY `users_id` (`users_id`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
+                } catch (Throwable $e) {}
+            }
+        }
+    } catch (Throwable $e) {}
 }
 
 function plugin_kbwizard_post_show_item($params) {
@@ -97,10 +180,10 @@ function plugin_kbwizard_post_show_item($params) {
                     var webDir=".$webDirJs.",otherDir=".$otherDirJs.",suffix=".$suffixJs.";
                     function ensureCss(){
                         var has=false; for(var i=0;i<document.styleSheets.length;i++){ try{ if(document.styleSheets[i].href && document.styleSheets[i].href.indexOf('kbwizard.css')!==-1) has=true; }catch(e){} }
-                        if(!has){ var l=document.createElement('link'); l.rel='stylesheet'; l.href=webDir+'/css/kbwizard.css'+suffix; l.onerror=function(){ var l2=document.createElement('link'); l2.rel='stylesheet'; l2.href=otherDir+'/css/kbwizard.css'+suffix; document.head.appendChild(l2); }; document.head.appendChild(l); }
+                        if(!has){ var urls=[webDir+'/css/kbwizard.css'+suffix,webDir+'/public/css/kbwizard.css'+suffix,otherDir+'/css/kbwizard.css'+suffix,otherDir+'/public/css/kbwizard.css'+suffix]; var i=0; function next(){ if(i>=urls.length) return; var l=document.createElement('link'); l.rel='stylesheet'; l.href=urls[i++]; l.onerror=function(){ next(); }; document.head.appendChild(l); } next(); }
                     }
                     function ensureJs(){
-                        if(typeof KBWizard==='undefined'){ var s=document.createElement('script'); s.src=webDir+'/js/kbwizard.js'+suffix; s.onerror=function(){ var s2=document.createElement('script'); s2.src=otherDir+'/js/kbwizard.js'+suffix; document.head.appendChild(s2); }; document.head.appendChild(s); }
+                        if(typeof KBWizard==='undefined'){ var urls=[webDir+'/js/kbwizard.js'+suffix,webDir+'/public/js/kbwizard.js'+suffix,otherDir+'/js/kbwizard.js'+suffix,otherDir+'/public/js/kbwizard.js'+suffix]; var i=0; function next(){ if(i>=urls.length) return; var s=document.createElement('script'); s.src=urls[i++]; s.onerror=function(){ next(); }; document.head.appendChild(s); } next(); }
                     }
                     if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ ensureCss(); ensureJs(); }); else { ensureCss(); ensureJs(); }
                 })();

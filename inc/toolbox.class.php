@@ -50,14 +50,17 @@ class PluginKbwizardToolbox
             // fallback abaixo
         }
 
-        // Fallback filesystem: verifica onde css existe
+        // Fallback filesystem: verifica onde o CSS existe (GLPI 11+: assets em public/)
+        // Checa public/ primeiro; mantém css/ legado como secundário para installs antigas
         if (defined('GLPI_ROOT')) {
-            if (is_file(GLPI_ROOT . '/marketplace/kbwizard/css/kbwizard.css')) {
+            if (is_file(GLPI_ROOT . '/marketplace/kbwizard/public/css/kbwizard.css')
+                || is_file(GLPI_ROOT . '/marketplace/kbwizard/css/kbwizard.css')) {
                 global $CFG_GLPI;
                 self::$webDirCache = ($CFG_GLPI['root_doc'] ?? '') . '/marketplace/kbwizard';
                 return self::$webDirCache;
             }
-            if (is_file(GLPI_ROOT . '/plugins/kbwizard/css/kbwizard.css')) {
+            if (is_file(GLPI_ROOT . '/plugins/kbwizard/public/css/kbwizard.css')
+                || is_file(GLPI_ROOT . '/plugins/kbwizard/css/kbwizard.css')) {
                 global $CFG_GLPI;
                 self::$webDirCache = ($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard';
                 return self::$webDirCache;
@@ -258,9 +261,12 @@ class PluginKbwizardToolbox
             return self::$cssInlineCache;
         }
         $paths = [
-            __DIR__ . '/../css/kbwizard.css',
+            __DIR__ . '/../public/css/kbwizard.css',
+            __DIR__ . '/../css/kbwizard.css', // legado pré-11
         ];
         if (defined('GLPI_ROOT')) {
+            $paths[] = GLPI_ROOT . '/plugins/kbwizard/public/css/kbwizard.css';
+            $paths[] = GLPI_ROOT . '/marketplace/kbwizard/public/css/kbwizard.css';
             $paths[] = GLPI_ROOT . '/plugins/kbwizard/css/kbwizard.css';
             $paths[] = GLPI_ROOT . '/marketplace/kbwizard/css/kbwizard.css';
         }
@@ -286,9 +292,12 @@ class PluginKbwizardToolbox
             return self::$jsInlineCache;
         }
         $paths = [
-            __DIR__ . '/../js/kbwizard.js',
+            __DIR__ . '/../public/js/kbwizard.js',
+            __DIR__ . '/../js/kbwizard.js', // legado pré-11
         ];
         if (defined('GLPI_ROOT')) {
+            $paths[] = GLPI_ROOT . '/plugins/kbwizard/public/js/kbwizard.js';
+            $paths[] = GLPI_ROOT . '/marketplace/kbwizard/public/js/kbwizard.js';
             $paths[] = GLPI_ROOT . '/plugins/kbwizard/js/kbwizard.js';
             $paths[] = GLPI_ROOT . '/marketplace/kbwizard/js/kbwizard.js';
         }

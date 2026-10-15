@@ -25,10 +25,12 @@ $knowbaseitems_id = (int)($_POST['knowbaseitems_id'] ?? $_GET['knowbaseitems_id'
 
 // Se POST com knowbaseitems_id = salva config por artigo (fluxo da aba)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
-    // FIX GLPI 11.06: com csrf_compliant=true o GLPI já valida o token no LegacyFileLoadController
-    // antes de chegar aqui. Chamar checkCSRF de novo consome o token e lança AccessDeniedHttpException.
-    // Então valida apenas se ainda não foi consumido, de forma defensiva.
-    if (isset($_POST['_glpi_csrf_token'])) {
+    // CSRF defensivo dual GLPI 11/12: no 11 o LegacyFileLoadController já valida o token
+    // (hook csrf_compliant) antes de chegar aqui; no 12 o hook foi removido e o
+    // CheckCsrfListener valida headers Sec-Fetch-Site/Origin. A validação manual abaixo
+    // roda apenas se o método existir (deprecated mas presente no 12) e ignora o
+    // double-check de token já consumido pelo framework.
+    if (isset($_POST['_glpi_csrf_token']) && method_exists('Session', 'checkCSRF')) {
         try {
             Session::checkCSRF($_POST);
         } catch (Throwable $e) {
@@ -42,7 +44,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
 
     $kb = new KnowbaseItem();
     if (!$kb->getFromDB($knowbaseitems_id)) {
-        Html::displayErrorAndDie(__('Artigo não encontrado', 'kbwizard'));
+        // API de erro fatal do Html removida no GLPI 12 — redireciona com mensagem (vale em 11 e 12).
+        Session::addMessageAfterRedirect(__('Artigo não encontrado', 'kbwizard'), true, ERROR);
+        Html::redirect(($CFG_GLPI['root_doc'] ?? '') . '/front/knowbaseitem.php');
+        exit;
     }
 
     $config = new PluginKbwizardConfig();

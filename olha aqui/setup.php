@@ -1,0 +1,437 @@
+<?php
+
+/**
+ * Reservafrota — Agendamento de carros para GLPI 11
+ *
+ * setup.php: ponto de entrada do plugin. Declara versão, requisitos,
+ * hooks (CSS/JS, menu, abas de perfil) e a checagem de pré-requisitos.
+ */
+
+use Glpi\Plugin\Hooks;
+use GlpiPlugin\Reservafrota\Booking;
+use GlpiPlugin\Reservafrota\Car;
+use GlpiPlugin\Reservafrota\Driver;
+use GlpiPlugin\Reservafrota\Maintenance;
+use GlpiPlugin\Reservafrota\MaintenancePlan;
+use GlpiPlugin\Reservafrota\Profile as ReservafrotaProfile;
+
+define('PLUGIN_RESERVAFROTA_VERSION', '1.2.0');
+
+// Faixa de versões do GLPI suportadas
+define('PLUGIN_RESERVAFROTA_MIN_GLPI_VERSION', '11.0.0');
+define('PLUGIN_RESERVAFROTA_MAX_GLPI_VERSION', '12.0.99');
+
+/**
+ * Base URL do plugin (GLPI 11 e 12).
+ * Substitui Plugin::getWebDir() (removido no GLPI 12).
+ */
+function plugin_reservafrota_webdir(): string
+{
+    global $CFG_GLPI;
+    return rtrim((string) ($CFG_GLPI['root_doc'] ?? ''), '/') . '/plugins/reservafrota';
+}
+
+/**
+ * Inicialização do plugin — chamada em todas as páginas do GLPI.
+ */
+function plugin_init_reservafrota(): void
+{
+    global $PLUGIN_HOOKS;
+
+    // CSRF: no GLPI 12 o hook csrf_compliant foi removido (CheckCsrfListener
+    // valida headers); mantém true apenas no GLPI <12.
+    if (version_compare(GLPI_VERSION, '12.0', '<')) {
+        $PLUGIN_HOOKS['csrf_compliant']['reservafrota'] = true;
+    }
+
+    // Folha de estilo e script. Os arquivos ficam em public/ (exigência do
+    // GLPI 11), mas o caminho registrado NÃO inclui "public/" — o GLPI resolve
+    // /plugins/reservafrota/css/reservafrota.css -> public/css/reservafrota.css.
+    $PLUGIN_HOOKS[Hooks::ADD_CSS]['reservafrota']        = 'css/reservafrota.css';
+    $PLUGIN_HOOKS[Hooks::ADD_JAVASCRIPT]['reservafrota'] = ['js/agenda.js', 'js/analytics.js', 'js/calendar.js'];
+
+    // Aba de permissões dentro de Administração > Perfis.
+    Plugin::registerClass(ReservafrotaProfile::class, [
+        'addtabon' => Profile::class,
+    ]);
+
+    // Registra as classes do plugin para que o GLPI reconheça seus direitos
+    // (reservafrota::booking e reservafrota::car) e os carregue na sessão de
+    // qualquer usuário no login — sem isso, perfis não-admin não recebem o
+    // direito na sessão mesmo tendo o valor gravado em glpi_profilerights.
+    Plugin::registerClass(Booking::class);
+    Plugin::registerClass(Car::class);
+    Plugin::registerClass(Driver::class);
+    Plugin::registerClass(MaintenancePlan::class);
+    Plugin::registerClass(Maintenance::class);
+
+    // Auto-migração silenciosa: se o plugin foi atualizado por cópia de arquivos
+    // (sem passar por Configurar > Plugins > Atualizar), cria as tabelas/colunas
+    // novas na primeira página carregada — evita o erro "Table doesn't exist".
+    // Não usa Migration aqui para não interferir no fluxo normal de instalação.
+    try {
+        if (isset($GLOBALS['DB']) && $GLOBALS['DB'] instanceof \DBmysql) {
+            $db = $GLOBALS['DB'];
+            $charset   = \DBConnection::getDefaultCharset();
+            $collation = \DBConnection::getDefaultCollation();
+            $drvTable  = Driver::getTable();
+            if ($db->tableExists($drvTable) && !$db->fieldExists($drvTable, 'users_id')) {
+                try {
+                    $db->doQuery("ALTER TABLE `$drvTable`
+                        ADD COLUMN `users_id` int unsigned NOT NULL DEFAULT 0 AFTER `phone`,
+                        ADD KEY `users_id` (`users_id`)");
+                } catch (\Throwable $e) {}
+            }
+            if ($db->tableExists($drvTable) && $db->fieldExists($drvTable, 'users_id')) {
+                try {
+                    $db->doQuery("UPDATE `$drvTable` d
+                        INNER JOIN `glpi_users` u
+                            ON (TRIM(CONCAT_WS(' ', u.`firstname`, u.`realname`)) = TRIM(d.`name`)
+                                OR u.`name` = TRIM(d.`name`))
+                        SET d.`users_id` = u.`id`
+                        WHERE d.`users_id` = 0 AND d.`is_deleted` = 0
+                            AND u.`is_deleted` = 0 AND TRIM(d.`name`) <> ''");
+                } catch (\Throwable $e) {}
+            }
+            if (!$db->tableExists($drvTable)) {
+                $db->doQuery("CREATE TABLE `$drvTable` (
+                    `id`            int unsigned NOT NULL AUTO_INCREMENT,
+                    `name`          varchar(255) NOT NULL DEFAULT '',
+                    `cnh`           varchar(20)  NOT NULL DEFAULT '',
+                    `phone`         varchar(50)  NOT NULL DEFAULT '',
+                    `users_id`      int unsigned NOT NULL DEFAULT 0,
+                    `picture`       varchar(255) DEFAULT NULL,
+                    `is_active`     tinyint      NOT NULL DEFAULT 1,
+                    `comment`       text         DEFAULT NULL,
+                    `is_deleted`    tinyint      NOT NULL DEFAULT 0,
+                    `date_creation` timestamp    NULL DEFAULT NULL,
+                    `date_mod`      timestamp    NULL DEFAULT NULL,
+                    PRIMARY KEY (`id`),
+                    KEY `is_active` (`is_active`),
+                    KEY `is_deleted` (`is_deleted`),
+                    KEY `users_id` (`users_id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+            }
+            $bkTable = Booking::getTable();
+            if ($db->tableExists($bkTable) && !$db->fieldExists($bkTable, 'request_code')) {
+                try {
+                    $db->doQuery("ALTER TABLE `$bkTable`
+                        ADD COLUMN `request_code` varchar(32) NOT NULL DEFAULT '' AFTER `comment_validation`,
+                        ADD KEY `request_code` (`request_code`)");
+                } catch (\Throwable $e) {}
+            }
+            if ($db->tableExists($bkTable) && $db->fieldExists($bkTable, 'request_code')) {
+                try {
+                    // Código numérico crescente: o próprio id (base das repetições).
+                    $db->doQuery("UPDATE `$bkTable`
+                        SET `request_code` = `id`
+                        WHERE `request_code` = '' OR `request_code` LIKE 'RF-%'");
+                } catch (\Throwable $e) {}
+            }
+            if ($db->tableExists($bkTable) && !$db->fieldExists($bkTable, 'km_initial')) {
+                try {
+                    $db->doQuery("ALTER TABLE `$bkTable`
+                        ADD COLUMN `km_initial` int unsigned DEFAULT NULL AFTER `arrival_obs`");
+                } catch (\Throwable $e) {}
+            }
+            // Tabelas da sincronização com Google Sheets (Forms de saída/chegada).
+            $sheetCfg = 'glpi_plugin_reservafrota_sheetcfg';
+            if (!$db->tableExists($sheetCfg)) {
+                try {
+                    $db->doQuery("CREATE TABLE `$sheetCfg` (
+                        `id`             int unsigned NOT NULL AUTO_INCREMENT,
+                        `spreadsheet_id` varchar(128) NOT NULL DEFAULT '',
+                        `api_key`        varchar(255) NOT NULL DEFAULT '',
+                        `sheet_range`    varchar(64)  NOT NULL DEFAULT 'Respostas!A2:F',
+                        `last_row`       int unsigned NOT NULL DEFAULT 1,
+                        `last_sync`      datetime     DEFAULT NULL,
+                        `enabled`        tinyint      NOT NULL DEFAULT 0,
+                        PRIMARY KEY (`id`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+                } catch (\Throwable $e) {}
+            }
+            $sheetLog = 'glpi_plugin_reservafrota_sheetlog';
+            if (!$db->tableExists($sheetLog)) {
+                try {
+                    $db->doQuery("CREATE TABLE `$sheetLog` (
+                        `id`            int unsigned NOT NULL AUTO_INCREMENT,
+                        `row_num`       int unsigned NOT NULL DEFAULT 0,
+                        `received_at`   datetime     DEFAULT NULL,
+                        `request_code`  varchar(32)  NOT NULL DEFAULT '',
+                        `bookings_id`   int unsigned NOT NULL DEFAULT 0,
+                        `event`         varchar(16)  NOT NULL DEFAULT '',
+                        `km`            int          NOT NULL DEFAULT 0,
+                        `driver_name`   varchar(255) NOT NULL DEFAULT '',
+                        `obs`           text         DEFAULT NULL,
+                        `local`         varchar(255) NOT NULL DEFAULT '',
+                        `status`        varchar(16)  NOT NULL DEFAULT '',
+                        `message`       text         DEFAULT NULL,
+                        `source`        varchar(16)  NOT NULL DEFAULT 'sheet',
+                        `date_creation` timestamp    NULL DEFAULT NULL,
+                        PRIMARY KEY (`id`),
+                        KEY `request_code` (`request_code`),
+                        KEY `status` (`status`),
+                        KEY `row_num` (`row_num`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+                } catch (\Throwable $e) {}
+            }
+            if ($db->tableExists($sheetLog) && !$db->fieldExists($sheetLog, 'obs')) {
+                try {
+                    $db->doQuery("ALTER TABLE `$sheetLog`
+                        ADD COLUMN `obs` text DEFAULT NULL AFTER `driver_name`");
+                } catch (\Throwable $e) {}
+            }
+            if ($db->tableExists($sheetLog) && !$db->fieldExists($sheetLog, 'local')) {
+                try {
+                    $db->doQuery("ALTER TABLE `$sheetLog`
+                        ADD COLUMN `local` varchar(255) NOT NULL DEFAULT '' AFTER `obs`");
+                } catch (\Throwable $e) {}
+            }
+            $legsTable = 'glpi_plugin_reservafrota_legs';
+            if (!$db->tableExists($legsTable)) {
+                try {
+                    $db->doQuery("CREATE TABLE `$legsTable` (
+                        `id`            int unsigned NOT NULL AUTO_INCREMENT,
+                        `bookings_id`   int unsigned NOT NULL DEFAULT 0,
+                        `request_code`  varchar(32)  NOT NULL DEFAULT '',
+                        `event_at`      datetime     DEFAULT NULL,
+                        `local`         varchar(255) NOT NULL DEFAULT '',
+                        `km`            int unsigned NOT NULL DEFAULT 0,
+                        `event`         varchar(16)  NOT NULL DEFAULT '',
+                        `driver_name`   varchar(255) NOT NULL DEFAULT '',
+                        `row_num`       int unsigned NOT NULL DEFAULT 0,
+                        `date_creation` timestamp    NULL DEFAULT NULL,
+                        PRIMARY KEY (`id`),
+                        KEY `bookings_id` (`bookings_id`),
+                        KEY `request_code` (`request_code`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+                } catch (\Throwable $e) {}
+            }
+            if ($db->tableExists($bkTable) && !$db->fieldExists($bkTable, 'plugin_reservafrota_drivers_id')) {
+                $db->doQuery("ALTER TABLE `$bkTable`
+                    ADD COLUMN `plugin_reservafrota_drivers_id` int unsigned NOT NULL DEFAULT 0 AFTER `driver`,
+                    ADD KEY `plugin_reservafrota_drivers_id` (`plugin_reservafrota_drivers_id`)");
+            }
+            // Auto-migração das manutenções (instalação por cópia de arquivos)
+            try {
+                $carTable = Car::getTable();
+                if ($db->tableExists($carTable) && !$db->fieldExists($carTable, 'km_current')) {
+                    $db->doQuery("ALTER TABLE `$carTable`
+                        ADD COLUMN `km_current` int unsigned NOT NULL DEFAULT 0 AFTER `model_year`,
+                        ADD COLUMN `km_updated` datetime DEFAULT NULL AFTER `km_current`");
+                } elseif ($db->tableExists($carTable) && !$db->fieldExists($carTable, 'km_updated')) {
+                    $db->doQuery("ALTER TABLE `$carTable`
+                        ADD COLUMN `km_updated` datetime DEFAULT NULL AFTER `km_current`");
+                }
+                $planTable = MaintenancePlan::getTable();
+                if (!$db->tableExists($planTable)) {
+                    $db->doQuery("CREATE TABLE `$planTable` (
+                        `id`                          int unsigned NOT NULL AUTO_INCREMENT,
+                        `plugin_reservafrota_cars_id` int unsigned NOT NULL DEFAULT 0,
+                        `name`                        varchar(255) NOT NULL DEFAULT '',
+                        `due_km`                      int unsigned NOT NULL DEFAULT 0,
+                        `warn_km`                     int unsigned NOT NULL DEFAULT 1000,
+                        `comment`                     text         DEFAULT NULL,
+                        `is_done`                     tinyint      NOT NULL DEFAULT 0,
+                        `date_done`                   datetime     DEFAULT NULL,
+                        `last_notify`                 datetime     DEFAULT NULL,
+                        `is_deleted`                  tinyint      NOT NULL DEFAULT 0,
+                        `date_creation`               timestamp    NULL DEFAULT NULL,
+                        `date_mod`                    timestamp    NULL DEFAULT NULL,
+                        PRIMARY KEY (`id`),
+                        KEY `plugin_reservafrota_cars_id` (`plugin_reservafrota_cars_id`),
+                        KEY `is_done` (`is_done`),
+                        KEY `due_km` (`due_km`),
+                        KEY `is_deleted` (`is_deleted`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+                }
+                $maintTable = Maintenance::getTable();
+                if (!$db->tableExists($maintTable)) {
+                    $db->doQuery("CREATE TABLE `$maintTable` (
+                        `id`                                      int unsigned NOT NULL AUTO_INCREMENT,
+                        `plugin_reservafrota_cars_id`             int unsigned NOT NULL DEFAULT 0,
+                        `plugin_reservafrota_maintenanceplans_id` int unsigned NOT NULL DEFAULT 0,
+                        `maintenance_date`                        date         DEFAULT NULL,
+                        `km`                                      int unsigned NOT NULL DEFAULT 0,
+                        `description`                             text         DEFAULT NULL,
+                        `users_id`                                int unsigned NOT NULL DEFAULT 0,
+                        `is_deleted`                              tinyint      NOT NULL DEFAULT 0,
+                        `date_creation`                           timestamp    NULL DEFAULT NULL,
+                        `date_mod`                                timestamp    NULL DEFAULT NULL,
+                        PRIMARY KEY (`id`),
+                        KEY `plugin_reservafrota_cars_id` (`plugin_reservafrota_cars_id`),
+                        KEY `maintenance_date` (`maintenance_date`),
+                        KEY `is_deleted` (`is_deleted`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation}");
+                }
+            } catch (\Throwable $e) {}
+            // Garante a ação automática do Sheets (instalação por cópia de arquivos).
+            try {
+                if (class_exists('CronTask') && method_exists('CronTask', 'register') && $db->tableExists('glpi_crontasks')) {
+                    $hasCron = $db->request([
+                        'SELECT' => ['id'],
+                        'FROM'   => 'glpi_crontasks',
+                        'WHERE'  => [
+                            'itemtype' => 'GlpiPlugin\\Reservafrota\\SheetSync',
+                            'name'     => 'sheetsync',
+                        ],
+                        'LIMIT'  => 1,
+                    ])->current() ? 1 : 0;
+                    if ($hasCron === 0) {
+                        \CronTask::register(
+                            'GlpiPlugin\\Reservafrota\\SheetSync',
+                            'sheetsync',
+                            15 * MINUTE_TIMESTAMP,
+                            [
+                                'comment' => 'Reserva de Frota: importa eventos de saída/chegada do Google Sheets',
+                                'mode'    => \CronTask::MODE_INTERNAL,
+                            ]
+                        );
+                    }
+                }
+            } catch (\Throwable $e) {}
+            // Garante que o direito do motorista exista (para instalações antigas)
+            $exists = $db->request([
+                'FROM'  => \ProfileRight::getTable(),
+                'WHERE' => ['name' => 'reservafrota::driver'],
+                'LIMIT' => 1,
+            ])->current();
+            if (!$exists) {
+                \ProfileRight::addProfileRights(['reservafrota::driver']);
+            }
+            // Se o perfil ativo está sem acesso ao motorista (rights=0 por
+            // instalação anterior ao módulo), concede acesso total e recarrega
+            // a sessão — sem isso o super-admin continua sem ver o botão.
+            $current = (int) ($_SESSION['glpiactiveprofile']['id'] ?? 0);
+            if ($current > 0) {
+                try {
+                    $curRight = $db->request([
+                        'FROM'  => \ProfileRight::getTable(),
+                        'WHERE' => [
+                            'profiles_id' => $current,
+                            'name'        => 'reservafrota::driver',
+                        ],
+                        'LIMIT' => 1,
+                    ])->current();
+                    if (!is_array($curRight) || (int) ($curRight['rights'] ?? 0) === 0) {
+                        $db->update(\ProfileRight::getTable(), ['rights' => ALLSTANDARDRIGHT], [
+                            'profiles_id' => $current,
+                            'name'        => 'reservafrota::driver',
+                        ]);
+                        \GlpiPlugin\Reservafrota\Profile::changeProfile();
+                    }
+                } catch (\Throwable $e) {}
+            }
+            // Nome exibido em Configurar > Plugins vem do banco (glpi_plugins),
+            // gravado na instalação — se o nome mudou depois (ex.: prefixo
+            // [URE]), atualiza sozinho no primeiro carregamento.
+            try {
+                if ($db->tableExists('glpi_plugins') && $db->fieldExists('glpi_plugins', 'name')) {
+                    $wantName = (string) (plugin_version_reservafrota()['name'] ?? '');
+                    if ($wantName !== '') {
+                        $plugRow = $db->request([
+                            'SELECT' => ['name'],
+                            'FROM'   => 'glpi_plugins',
+                            'WHERE'  => ['directory' => 'reservafrota'],
+                            'LIMIT'  => 1,
+                        ])->current();
+                        if (is_array($plugRow) && ($plugRow['name'] ?? null) !== $wantName) {
+                            $db->update('glpi_plugins', ['name' => $wantName], [
+                                'directory' => 'reservafrota',
+                            ]);
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {}
+        }
+    } catch (\Throwable $e) {
+        // Silencioso: instalação/migração completa será feita em Configurar > Plugins > Instalar/Atualizar
+    }
+
+    // ESSENCIAL: a cada login/troca de perfil, o GLPI dispara este hook.
+    // Ele carrega os direitos do plugin (reservafrota::booking / reservafrota::car)
+    // do banco para a sessão ativa. Sem isso, Session::haveRight() não enxerga
+    // os direitos do plugin para usuários que apenas logam (ex: self-service),
+    // mesmo com o valor gravado em glpi_profilerights.
+    $PLUGIN_HOOKS['change_profile']['reservafrota'] = [ReservafrotaProfile::class, 'changeProfile'];
+
+    // Entrada de menu em "Ferramentas".
+    $PLUGIN_HOOKS[Hooks::MENU_TOADD]['reservafrota'] = [
+        'tools' => Booking::class,
+    ];
+
+    // Link na interface simplificada (Helpdesk), para usuários self-service.
+    $PLUGIN_HOOKS['helpdesk_menu_entry']['reservafrota']      = '/front/calendar.php';
+    $PLUGIN_HOOKS['helpdesk_menu_entry_icon']['reservafrota'] = 'ti ti-car';
+
+    // GLPI 11: por padrão os scripts de plugin exigem a interface central.
+    // Liberamos as páginas usadas pelo funcionário (interface simplificada)
+    // para qualquer usuário autenticado — a permissão real continua sendo
+    // verificada por Session::checkRight() dentro de cada script.
+    if (class_exists(\Glpi\Http\Firewall::class)) {
+        $auth = \Glpi\Http\Firewall::STRATEGY_AUTHENTICATED;
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/agenda\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/calendar\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/booking\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/car\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/analytics\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/ajax/carsstatus\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/ajax/month\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/ajax/conflict\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/ajax/pending\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/sheet\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/booking\.form\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/car\.picture\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/driver\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/driver\.form\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/driver\.picture\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/profile\.form\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/debug\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/ajax/bookinglist\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/ajax/carslot\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/ajax/availability\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/export\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/history\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/maintenance\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/maintenance\.form\.php$#', $auth);
+        \Glpi\Http\Firewall::addPluginStrategyForLegacyScripts('reservafrota', '#^/front/sheetsync\.php$#', $auth);
+    }
+}
+
+/**
+ * Metadados exibidos em Configurar > Plugins.
+ */
+function plugin_version_reservafrota(): array
+{
+    return [
+        'name'         => '[URE] Reserva de Frota',
+        'version'      => PLUGIN_RESERVAFROTA_VERSION,
+        'author'       => 'Aryan Lourenço Ferrari',
+        'license'      => 'MIT',
+        'homepage'     => '',
+        'requirements' => [
+            'glpi' => [
+                'min' => PLUGIN_RESERVAFROTA_MIN_GLPI_VERSION,
+                'max' => PLUGIN_RESERVAFROTA_MAX_GLPI_VERSION,
+            ],
+        ],
+    ];
+}
+
+/**
+ * Checagem de pré-requisitos antes da instalação.
+ */
+function plugin_reservafrota_check_prerequisites(): bool
+{
+    // A faixa de versões já é validada pelo GLPI a partir de plugin_version.
+    return true;
+}
+
+/**
+ * Checagem de configuração — chamada em todas as páginas.
+ * Retornar false desativa o plugin automaticamente.
+ */
+function plugin_reservafrota_check_config(bool $verbose = false): bool
+{
+    return true;
+}

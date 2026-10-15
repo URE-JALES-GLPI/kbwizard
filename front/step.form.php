@@ -18,25 +18,33 @@ if (file_exists(__DIR__ . '/../inc/toolbox.class.php') && !class_exists('PluginK
 
 Session::checkRight(KnowbaseItem::$rightname, UPDATE);
 
+global $CFG_GLPI;
+
 $knowbaseitems_id = (int)($_REQUEST['knowbaseitems_id'] ?? 0);
 $id = (int)($_REQUEST['id'] ?? 0);
 
 $kb = new KnowbaseItem();
 if ($knowbaseitems_id && !$kb->getFromDB($knowbaseitems_id)) {
-    Html::displayErrorAndDie(__('Artigo não encontrado', 'kbwizard'));
+    // API de erro fatal do Html removida no GLPI 12 — redireciona com mensagem (vale em 11 e 12).
+    Session::addMessageAfterRedirect(__('Artigo não encontrado', 'kbwizard'), true, ERROR);
+    Html::redirect(($CFG_GLPI['root_doc'] ?? '') . '/front/knowbaseitem.php');
+    exit;
 }
 
 $step = new PluginKbwizardStep();
 
-// Helper para validar CSRF de forma defensiva (evita double-check com csrf_compliant=true)
+// Helper para validar CSRF de forma defensiva dual GLPI 11/12 (evita double-check
+// com csrf_compliant=true no 11; no 12 o hook foi removido e o CheckCsrfListener
+// valida headers — Session::checkCSRF está deprecated mas presente, então só chama se existir)
 function kbwizard_check_csrf($data) {
-    if (!isset($data['_glpi_csrf_token'])) {
+    if (!isset($data['_glpi_csrf_token']) || !method_exists('Session', 'checkCSRF')) {
         return;
     }
     try {
         Session::checkCSRF($data);
     } catch (Throwable $e) {
-        // GLPI 11 já validou no controller, ignora double-check
+        // GLPI 11 já validou no controller (ignora double-check); no 12 o framework
+        // (CheckCsrfListener) já barrou ataque real antes — loga e segue.
         if (class_exists('PluginKbwizardToolbox')) PluginKbwizardToolbox::log('CSRF step double-check ignorado: '.$e->getMessage());
         else try { Toolbox::logInFile('kbwizard', 'CSRF step double-check ignorado: '.$e->getMessage()); } catch(Throwable $e2){}
     }

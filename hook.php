@@ -1,12 +1,15 @@
 <?php
 /**
  * Hook file for KB Wizard plugin
- * Espelhado no modelo Ticket Answers (GLPI 11) - 100% funcional em 11.06
+ * Instalação/atualização/desinstalação - compatível GLPI 11/12
  */
 
 function plugin_kbwizard_install() {
     /** @var DBmysql $DB */
     global $DB;
+
+    $charset = DBConnection::getDefaultCharset();
+    $collation = DBConnection::getDefaultCollation();
 
     // Criar tabela de configuração por artigo
     if (!$DB->tableExists('glpi_plugin_kbwizard_configs')) {
@@ -26,7 +29,7 @@ function plugin_kbwizard_install() {
             `date_mod` timestamp NULL DEFAULT NULL,
             PRIMARY KEY (`id`),
             UNIQUE KEY `knowbaseitems_id` (`knowbaseitems_id`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC");
+        ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
     }
 
     // Criar tabela de passos manuais
@@ -44,7 +47,7 @@ function plugin_kbwizard_install() {
             PRIMARY KEY (`id`),
             KEY `knowbaseitems_id` (`knowbaseitems_id`),
             KEY `rank` (`rank`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC");
+        ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
     }
 
     // Criar tabela de progresso por usuário
@@ -62,7 +65,7 @@ function plugin_kbwizard_install() {
             PRIMARY KEY (`id`),
             UNIQUE KEY `unicity` (`knowbaseitems_id`,`users_id`),
             KEY `users_id` (`users_id`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC");
+        ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
     }
 
     // Instalar direitos de perfil se a classe existir (opcional)
@@ -149,12 +152,6 @@ function plugin_kbwizard_update($current_version) {
             } catch (Throwable $e) {}
             Toolbox::logInFile('kbwizard', "KB Wizard atualizado para 1.0.19 - auto_delimiter normalizado para marker\n");
         }
-    }
-
-    // Futuro: atualização para 2.0.0 (GLPI 11) - exemplo espelhado do Ticket Answers
-    if (version_compare($current_version, '2.0.0', '<')) {
-        // Já estamos em 1.0.1, nada a fazer para 2.0.0 ainda, mas deixa estrutura pronta
-        Toolbox::logInFile('kbwizard', "KB Wizard verificado para GLPI 11 - 2.0.0 checkpoint\n");
     }
 
     // Atualizar direitos de perfil se existir
