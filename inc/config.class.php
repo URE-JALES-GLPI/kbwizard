@@ -7,9 +7,8 @@ if (!defined('GLPI_ROOT')) {
     die("Sorry. You can't access this file directly");
 }
 
-class PluginKbwizardConfig extends CommonDBTM {
-
-    public static $rightname = 'knowbase';
+// Corpo em trait: permite declarar $rightname com o tipo certo por versão do GLPI (ver final do arquivo)
+trait PluginKbwizardConfigBody {
 
     public static function getTypeName($nb = 0) {
         return _n('KB Wizard', 'KB Wizard', $nb, 'kbwizard');
@@ -343,6 +342,21 @@ class PluginKbwizardConfig extends CommonDBTM {
             }
         } catch (Throwable $e) {}
         return false;
+    }
+}
+
+// GLPI 12 tipou CommonGLPI::$rightname como string; no GLPI 11 ela é sem tipo.
+// Tipo de propriedade é invariante no PHP — declara conforme a versão em
+// execução, senão dá fatal de compilação e derruba o sistema inteiro.
+if (defined('GLPI_VERSION') && version_compare(GLPI_VERSION, '12.0', '>=')) {
+    class PluginKbwizardConfig extends CommonDBTM {
+        use PluginKbwizardConfigBody;
+        public static string $rightname = 'knowbase';
+    }
+} else {
+    class PluginKbwizardConfig extends CommonDBTM {
+        use PluginKbwizardConfigBody;
+        public static $rightname = 'knowbase';
     }
 }
 

@@ -1,6 +1,11 @@
 # Changelog
 
-## 1.1.0 - 2026-10-15 Migração GLPI 12 — ATUAL
+## 1.1.1 - 2026-10-15 Hotfix fatal GLPI 12 — ATUAL
+- **Bug**: no GLPI 12 o core tipou `CommonGLPI::$rightname` como `string` e as 3 classes declaravam sem tipo → fatal de compilação em toda página (`Type of PluginKbwizardConfig::$rightname must be string (as in class CommonGLPI)`)
+- **Fix**: corpo das classes em trait (`inc/config.class.php`, `inc/step.class.php`, `inc/progress.class.php`) + declaração condicional de `$rightname` (`string` no GLPI 12, sem tipo no GLPI 11) — dual 11/12 preservado, valor `knowbase` intacto
+- **Compat**: `setup.php:13` bump `1.1.0 → 1.1.1`, `composer.json:6` alinhado
+
+## 1.1.0 - 2026-10-15 Migração GLPI 12
 - **Compat**: `setup.php:13` bump `1.0.22 → 1.1.0`, requirements GLPI min `11.0.0` / max `12.0.99`, PHP `>= 8.2`; `composer.json:6` alinhado
 - **Compat GLPI 12 CSRF**: `setup.php:59` hook `csrf_compliant` registrado apenas em GLPI < 12 (no 12 o CheckCsrfListener valida headers); validação manual em `front/config.php`, `front/step.form.php` e `ajax/progress.php` virou defensiva (`method_exists('Session', 'checkCSRF')`)
 - **Compat GLPI 12 webdir**: removidas chamadas a `Plugin::getWebDir()` (API removida no 12) em `inc/config.class.php`, `inc/step.class.php`; webdir deriva de Toolbox/root_doc
