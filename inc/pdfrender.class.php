@@ -112,7 +112,7 @@ class PluginKbwizardPdfRender
      * @return string Bytes do PDF
      * @throws RuntimeException
      */
-    public static function render(string $html, string $title = ''): string
+    public static function render(string $html, string $title = '', ?int $kbId = null): string
     {
         if (!self::isAvailable()) {
             throw new RuntimeException(sprintf(
@@ -157,7 +157,7 @@ class PluginKbwizardPdfRender
                 . 'padding-top:2mm;text-align:right;">{PAGENO}/{nbpg}</div>';
             $mpdf->SetHTMLFooter($footer);
 
-            $payload = self::css() . self::embedImages($html);
+            $payload = self::css() . self::embedImages($html, $kbId);
             if (self::$imageVars !== []) {
                 // mPDF injeta o binário direto: nada de buscar URL, nada de link.
                 $mpdf->imageVars = self::$imageVars;
@@ -185,7 +185,7 @@ class PluginKbwizardPdfRender
      * e o binário vai em $mpdf->imageVars. O PDF final não contém a URL nem
      * depende de rede na hora de abrir; a imagem é o próprio arquivo.
      */
-    private static function embedImages(string $html): string
+    private static function embedImages(string $html, ?int $kbId = null): string
     {
         // Imagem dentro de link perde o <a>: no PDF não deve existir link para
         // o documento, apenas a imagem.
@@ -206,7 +206,7 @@ class PluginKbwizardPdfRender
 
         $html = (string)preg_replace_callback(
             '#<img\b[^>]*>#i',
-            static function (array $m) use (&$cache, &$embedded, &$failed, $allowed): string {
+            static function (array $m) use (&$cache, &$embedded, &$failed, $allowed, $kbId): string {
                 $tag = $m[0];
                 if (!preg_match('#\bsrc\s*=\s*(["\'])(.*?)\1#i', $tag, $sm)) {
                     return $tag;
@@ -217,7 +217,7 @@ class PluginKbwizardPdfRender
                 }
 
                 if (!array_key_exists($src, $cache)) {
-                    $cache[$src] = self::fetchImage($src);
+                    $cache[$src] = self::fetchImage($src, $kbId);
                 }
                 $img = $cache[$src];
                 if ($img === null) {
@@ -251,8 +251,19 @@ class PluginKbwizardPdfRender
      *
      * @return array{mime:string,data:string}|null
      */
-    private static function fetchImage(string $url): ?array
+    private static function fetchImage(string $url, ?int $kbId = null): ?array
     {
+        // Caminho principal: ler o documento direto do disco do GLPI.
+        // Sem HTTP, sem token e sem depender de o servidor alcançar a si mesmo
+        // (é o que falhava quando a imagem não era de um host público).
+        $plain = html_entity_decode($url, ENT_QUOTES, 'UTF-8');
+        if (preg_match('/[?&](?:amp;)?docid=(\d+)/i', $plain, $m)) {
+            $local = self::readDocument((int)$m[1], $kbId);
+            if ($local !== null) {
+                return $local;
+            }
+        }
+
         if (stripos($url, 'http://') !== 0 && stripos($url, 'https://') !== 0) {
             $base = '';
             if (class_exists('PluginKbwizardDriveExport')) {
@@ -311,6 +322,125 @@ class PluginKbwizardPdfRender
         }
 
         return ['mime' => $type, 'data' => $body];
+    }
+
+    /**
+     * Lê o binário de um documento do GLPI direto do disco (GLPI_DOC_DIR).
+     *
+     * @return array{mime:string,data:string}|null
+     */
+    private static function readDocument(int $docId, ?int $kbId): ?array
+    {
+        global $DB;
+
+        if ($docId <= 0 || !defined('GLPI_DOC_DIR') || !($DB instanceof DBmysql)) {
+            return null;
+        }
+        if ($kbId !== null && $kbId > 0 && !self::documentBelongsToKb($docId, $kbId)) {
+            self::log("documento $docId não está vinculado ao artigo $kbId");
+            return null;
+        }
+
+        $row = null;
+        foreach ($DB->request([
+            'FROM'  => 'glpi_documents',
+            'WHERE' => ['id' => $docId],
+            'LIMIT' => 1,
+        ]) as $r) {
+            $row = $r;
+            break;
+        }
+        if ($row === null || empty($row['filepath'])) {
+            return null;
+        }
+
+        $root = rtrim(str_replace('\\', '/', (string)GLPI_DOC_DIR), '/');
+        $rel  = ltrim(str_replace('\\', '/', (string)$row['filepath']), '/');
+        $real = realpath($root . '/' . $rel);
+        if ($real === false) {
+            return null;
+        }
+        $real = str_replace('\\', '/', $real);
+        if (strpos($real, $root . '/') !== 0 || !is_file($real)) {
+            return null;
+        }
+
+        $body = @file_get_contents($real);
+        if ($body === false || $body === '') {
+            return null;
+        }
+
+        $info = @getimagesizefromstring($body);
+        $mime = is_array($info) && !empty($info['mime']) ? strtolower((string)$info['mime']) : '';
+        if ($mime === '') {
+            $ext = strtolower(pathinfo((string)($row['filename'] ?? $real), PATHINFO_EXTENSION));
+            $map = [
+                'png'  => 'image/png',
+                'jpg'  => 'image/jpeg',
+                'jpeg' => 'image/jpeg',
+                'gif'  => 'image/gif',
+                'bmp'  => 'image/bmp',
+            ];
+            $mime = $map[$ext] ?? '';
+        }
+        if ($mime === '') {
+            return null;
+        }
+
+        return ['mime' => $mime, 'data' => $body];
+    }
+
+    /**
+     * O documento precisa pertencer ao artigo (ou à tradução dele).
+     */
+    private static function documentBelongsToKb(int $docId, int $kbId): bool
+    {
+        global $DB;
+        if (!($DB instanceof DBmysql)) {
+            return false;
+        }
+
+        foreach ($DB->request([
+            'FROM'  => 'glpi_documents_items',
+            'WHERE' => [
+                'documents_id' => $docId,
+                'itemtype'     => 'KnowbaseItem',
+                'items_id'     => $kbId,
+            ],
+            'LIMIT' => 1,
+        ]) as $row) {
+            return true;
+        }
+
+        // Imagens enviadas na tradução do artigo ficam ligadas à tradução.
+        $translations = [];
+        foreach ($DB->request([
+            'FROM'  => 'glpi_documents_items',
+            'WHERE' => [
+                'documents_id' => $docId,
+                'itemtype'     => 'KnowbaseItemTranslation',
+            ],
+            'LIMIT' => 10,
+        ]) as $row) {
+            $translations[] = (int)($row['items_id'] ?? 0);
+        }
+        $translations = array_values(array_filter($translations, static fn(int $id): bool => $id > 0));
+        if ($translations === []) {
+            return false;
+        }
+
+        foreach ($DB->request([
+            'FROM'  => 'glpi_knowbaseitemtranslations',
+            'WHERE' => [
+                'id'              => $translations,
+                'knowbaseitems_id' => $kbId,
+            ],
+            'LIMIT' => 1,
+        ]) as $row) {
+            return true;
+        }
+
+        return false;
     }
 
     private static function log(string $message): void

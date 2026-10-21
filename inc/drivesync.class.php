@@ -268,7 +268,7 @@ class PluginKbwizardDriveSync
 
                 if ($useLocalPdf) {
                     try {
-                        $pdfBytes = PluginKbwizardPdfRender::render($html, $name);
+                        $pdfBytes = PluginKbwizardPdfRender::render($html, $name, $kbId);
                         if (class_exists('PluginKbwizardToolbox')) {
                             PluginKbwizardToolbox::log("drive: kb=$kbId PDF gerado localmente com mPDF");
                         }
