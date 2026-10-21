@@ -69,18 +69,33 @@ Transforma qualquer artigo da **Base de Conhecimento** em um **guia guiado passo
 
 O NotebookLM só atualiza sozinho fontes que sejam **Google Docs nativos** — PDF importado continua sendo um snapshot. Por isso o plugin publica cada artigo **duas vezes** no Drive: um **Google Doc** (a fonte que o NotebookLM sincroniza) e um **PDF** (consulta/impressão). Os dois são atualizados no mesmo `fileId`, então o link nunca muda.
 
-### Pré-requisitos
-1. **Google Workspace** com um **Shared Drive** (service account não tem cota no "Meu Drive").
-2. Projeto no Google Cloud com a **Drive API** habilitada e uma **service account** (chave JSON).
-3. Adicione o e-mail da service account como **Gerente de conteúdo** no Shared Drive.
-4. `url_base` do GLPI configurado (Configurar > Geral) — é a URL que o Google usa para baixar as imagens.
+Há dois modos de autenticação, escolhidos na própria tela de configuração:
 
-### Configuração
+- **Conta Google (OAuth)** — recomendado. Funciona com **Gmail comum**, sem Workspace e sem Shared Drive. Os arquivos ficam no **Meu Drive** da conta conectada (15 GB). O escopo é `drive.file`: o plugin só enxerga o que ele mesmo criou.
+- **Service account** — para quem tem **Google Workspace** e um **Shared Drive**.
+
+### Pré-requisitos (modo OAuth)
+1. Uma conta Google (pode ser criada só para o plugin).
+2. Projeto no Google Cloud com a **Drive API** habilitada e um **OAuth client** do tipo *Web application* (grátis, sem faturamento).
+3. `url_base` do GLPI configurado (Configurar > Geral) — é a URL que o Google usa para baixar as imagens.
+
+### Configuração (modo OAuth)
 1. **Configurar > Plugins > KB Wizard** (ícone de engrenagem) → cartão **Sincronização com o Google Drive**.
-2. Envie o **JSON da service account** e informe o **ID do Shared Drive**.
-3. Clique **Testar conexão** (cria/localiza a pasta automaticamente) e depois **Salvar**.
-4. Marque **Ativar sincronização** e use **Sincronizar todos os artigos**.
-5. Confirme em **Configurar > Ações automáticas** que `PluginKbwizardCron::sync` está **aguardando execução** (roda a cada minuto, 5 artigos por execução).
+2. Escolha **Conta Google (Gmail)** e cole **Client ID** + **Client secret**.
+3. Copie o **Redirect URI** mostrado na tela e cadastre em **Google Cloud > Credentials > OAuth client > Authorized redirect URIs**.
+4. Clique **Conectar conta Google**, autorize (o aviso de app não verificado é esperado: *Avançado → Acessar*) e volte.
+5. Clique **Testar conexão** → o plugin cria a pasta `KB Wizard - Base de Conhecimento` no Meu Drive.
+6. Marque **Ativar sincronização**, **Salvar** e use **Sincronizar todos os artigos**.
+7. Confirme em **Configurar > Ações automáticas** que `PluginKbwizardCron::sync` está **aguardando execução** (roda a cada minuto, 5 artigos por execução).
+
+> No Google Cloud, publique o app como **"Em produção"** (OAuth consent screen). Em "Testing", o `refresh_token` expira em **7 dias** e a sincronização para.
+
+### Alternativa: service account + Shared Drive (Workspace)
+1. Google Cloud → **Drive API** → criar **service account** → chave **JSON**.
+2. Criar um **Shared Drive** e adicionar o e-mail da service account como **Gerente de conteúdo**.
+3. Na tela do plugin, escolher **Service account**, enviar o JSON, informar o **ID do Shared Drive**
+   (`drive.google.com/drive/folders/<ID>` — o ID do drive, não de uma pasta interna).
+4. **Testar conexão** → **Salvar** → **Sincronizar todos**.
 
 ### Como funciona
 - Salvar um artigo (ou um passo manual) coloca o artigo na fila.

@@ -4,7 +4,8 @@
  *
  * Variáveis esperadas (definidas em front/config.php):
  * $driveCfg, $driveStats, $driveHasSa, $driveSaEmail, $driveTest,
- * $driveActionUrl, $driveWebDir, $driveDataDir
+ * $driveActionUrl, $driveWebDir, $driveDataDir, $driveAuthMode,
+ * $driveGoogleEmail, $driveHasSecret, $driveRedirectUri
  */
 
 if (!defined('GLPI_ROOT')) {
@@ -19,6 +20,20 @@ $exportPdf = !empty($cfg['export_pdf']);
 $includeImages = !empty($cfg['include_images']);
 $hasSa = !empty($driveHasSa);
 $lastError = trim((string)($cfg['last_error'] ?? ''));
+
+$authMode = (string)($driveAuthMode ?? ($cfg['auth_mode'] ?? 'oauth'));
+if (!in_array($authMode, ['oauth', 'service_account'], true)) {
+    $authMode = 'oauth';
+}
+$isOAuth = $authMode === 'oauth';
+$googleEmail = trim((string)($driveGoogleEmail ?? ($cfg['google_email'] ?? '')));
+$hasSecret = !empty($driveHasSecret);
+$hasRefresh = trim((string)($cfg['refresh_token'] ?? '')) !== '';
+$redirectUri = (string)($driveRedirectUri ?? '');
+$sharedDriveId = trim((string)($cfg['shared_drive_id'] ?? ''));
+$needsSetup = $isOAuth
+    ? (trim((string)($cfg['client_id'] ?? '')) === '' || !$hasRefresh)
+    : (!$hasSa || $sharedDriveId === '');
 
 $esc = static function ($value): string {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -37,15 +52,17 @@ $esc = static function ($value): string {
 
     <div class="card-body">
         <p class="text-muted mb-3">
-            <?= $esc(__('Espelha os artigos da Base de Conhecimento em um Shared Drive como Google Doc + PDF. O NotebookLM sincroniza automaticamente apenas Google Docs nativos, por isso o Doc é o arquivo de referência.', 'kbwizard')) ?>
+            <?= $esc(__('Espelha os artigos da Base de Conhecimento no Google Drive como Google Doc + PDF. O NotebookLM sincroniza automaticamente apenas Google Docs nativos, por isso o Doc é o arquivo de referência.', 'kbwizard')) ?>
         </p>
 
         <?php if (is_array($driveTest ?? null)): ?>
             <div class="alert <?= !empty($driveTest['ok']) ? 'alert-success' : 'alert-danger' ?>">
                 <strong><?= $esc((string)($driveTest['message'] ?? '')) ?></strong>
-                <?php if (!empty($driveTest['ok'])): ?>
+                <?php if (!empty($driveTest['ok']) && (!empty($driveTest['drive']) || !empty($driveTest['folder_url']))): ?>
                     <div class="small mt-1">
-                        <?= $esc(__('Shared Drive:', 'kbwizard')) ?> <?= $esc((string)($driveTest['drive'] ?? '-')) ?>
+                        <?php if (!empty($driveTest['drive'])): ?>
+                            <?= $esc(__('Drive:', 'kbwizard')) ?> <?= $esc((string)$driveTest['drive']) ?>
+                        <?php endif; ?>
                         <?php if (!empty($driveTest['folder_url'])): ?>
                             &middot;
                             <a href="<?= $esc($driveTest['folder_url']) ?>" target="_blank" rel="noopener">
@@ -57,9 +74,13 @@ $esc = static function ($value): string {
             </div>
         <?php endif; ?>
 
-        <?php if (!$hasSa || trim((string)($cfg['shared_drive_id'] ?? '')) === ''): ?>
+        <?php if ($needsSetup): ?>
             <div class="alert alert-warning">
-                <?= $esc(__('Falta configurar a service account e/ou o Shared Drive. Sem isso a sincronização não roda.', 'kbwizard')) ?>
+                <?php if ($isOAuth): ?>
+                    <?= $esc(__('Conecte a conta Google (Client ID/secret + botão "Conectar conta Google"). Sem isso a sincronização não roda.', 'kbwizard')) ?>
+                <?php else: ?>
+                    <?= $esc(__('Falta configurar a service account e/ou o Shared Drive. Sem isso a sincronização não roda.', 'kbwizard')) ?>
+                <?php endif; ?>
             </div>
         <?php endif; ?>
 
@@ -103,24 +124,114 @@ $esc = static function ($value): string {
                     <div class="form-hint"><?= $esc(__('Imagens anexadas ao artigo são servidas por URL assinada temporária.', 'kbwizard')) ?></div>
                 </div>
 
-                <div class="col-md-8">
-                    <label class="form-label" for="kbwizard-shared-drive">
-                        <?= $esc(__('ID do Shared Drive', 'kbwizard')) ?>
-                    </label>
-                    <input type="text" class="form-control" id="kbwizard-shared-drive" name="shared_drive_id"
-                           value="<?= $esc($cfg['shared_drive_id'] ?? '') ?>"
-                           placeholder="0AJ...">
+                <div class="col-12">
+                    <hr>
+                    <label class="form-label d-block"><?= $esc(__('Autenticação', 'kbwizard')) ?></label>
+                    <div class="d-flex flex-wrap gap-4">
+                        <label class="form-check">
+                            <input class="form-check-input" type="radio" name="auth_mode" value="oauth" <?= $isOAuth ? 'checked' : '' ?>>
+                            <span class="form-check-label">
+                                <?= $esc(__('Conta Google (Gmail) — recomendado', 'kbwizard')) ?>
+                            </span>
+                        </label>
+                        <label class="form-check">
+                            <input class="form-check-input" type="radio" name="auth_mode" value="service_account" <?= !$isOAuth ? 'checked' : '' ?>>
+                            <span class="form-check-label">
+                                <?= $esc(__('Service account (Google Workspace + Shared Drive)', 'kbwizard')) ?>
+                            </span>
+                        </label>
+                    </div>
                     <div class="form-hint">
-                        <?= $esc(__('Está na URL do Drive compartilhado: drive.google.com/drive/folders/&lt;ID&gt;. A service account precisa ser membro com "Gerente de conteúdo".', 'kbwizard')) ?>
+                        <?= $esc(__('A conta Google usa escopo drive.file: o plugin só enxerga os arquivos que ele mesmo cria. A service account exige Workspace e um Shared Drive.', 'kbwizard')) ?>
                     </div>
                 </div>
+
+                <?php if ($isOAuth): ?>
+                    <div class="col-12">
+                        <hr>
+                        <div class="d-flex flex-wrap justify-content-between align-items-center mb-2">
+                            <h4 class="mb-0"><?= $esc(__('Conta Google conectada', 'kbwizard')) ?></h4>
+                            <?php if ($hasRefresh): ?>
+                                <span class="badge bg-success">
+                                    <i class="ti ti-circle-check me-1"></i>
+                                    <?= $esc($googleEmail !== '' ? $googleEmail : __('conectada', 'kbwizard')) ?>
+                                </span>
+                            <?php else: ?>
+                                <span class="badge bg-secondary"><?= $esc(__('não conectada', 'kbwizard')) ?></span>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label" for="kbwizard-client-id"><?= $esc(__('Client ID', 'kbwizard')) ?></label>
+                                <input type="text" class="form-control" id="kbwizard-client-id" name="client_id"
+                                       value="<?= $esc($cfg['client_id'] ?? '') ?>"
+                                       placeholder="000000000000-xxxx.apps.googleusercontent.com"
+                                       autocomplete="off">
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label" for="kbwizard-client-secret"><?= $esc(__('Client secret', 'kbwizard')) ?></label>
+                                <input type="password" class="form-control" id="kbwizard-client-secret" name="client_secret"
+                                       value=""
+                                       placeholder="<?= $hasSecret ? $esc(__('•••••••• (já salvo)', 'kbwizard')) : 'GOCSPX-...' ?>"
+                                       autocomplete="new-password">
+                                <div class="form-hint"><?= $esc(__('Deixe em branco para manter o segredo atual.', 'kbwizard')) ?></div>
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label" for="kbwizard-redirect-uri"><?= $esc(__('Redirect URI (cadastre no Google Cloud)', 'kbwizard')) ?></label>
+                                <input type="text" class="form-control" id="kbwizard-redirect-uri"
+                                       value="<?= $esc($redirectUri) ?>" readonly onclick="this.select();">
+                                <div class="form-hint">
+                                    <?= $esc(__('Em Google Cloud > Credentials > OAuth client, adicione exatamente esta URL em "Authorized redirect URIs".', 'kbwizard')) ?>
+                                </div>
+                            </div>
+
+                            <div class="col-12">
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button type="submit" name="oauth_connect" value="1" class="btn btn-outline-danger">
+                                        <i class="ti ti-brand-google me-1"></i>
+                                        <?= $hasRefresh ? $esc(__('Reconectar conta Google', 'kbwizard')) : $esc(__('Conectar conta Google', 'kbwizard')) ?>
+                                    </button>
+                                    <?php if ($hasRefresh): ?>
+                                        <button type="submit" name="oauth_disconnect" value="1" class="btn btn-outline-secondary">
+                                            <i class="ti ti-plug-off me-1"></i><?= $esc(__('Desconectar', 'kbwizard')) ?>
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="form-hint">
+                                    <?= $esc(__('Ao conectar, o Google mostra um aviso de app não verificado. É esperado: clique em "Avançado" e depois em "Acessar".', 'kbwizard')) ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                <?php else: ?>
+                    <div class="col-12">
+                        <hr>
+                        <h4 class="mb-2"><?= $esc(__('Shared Drive (service account)', 'kbwizard')) ?></h4>
+                        <label class="form-label" for="kbwizard-shared-drive">
+                            <?= $esc(__('ID do Shared Drive', 'kbwizard')) ?>
+                        </label>
+                        <input type="text" class="form-control" id="kbwizard-shared-drive" name="shared_drive_id"
+                               value="<?= $esc($sharedDriveId) ?>"
+                               placeholder="0AJ...">
+                        <div class="form-hint">
+                            <?= $esc(__('Está na URL do Drive compartilhado: drive.google.com/drive/folders/&lt;ID&gt;. A service account precisa ser membro com "Gerente de conteúdo".', 'kbwizard')) ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
 
                 <div class="col-md-6">
                     <label class="form-label" for="kbwizard-folder-name"><?= $esc(__('Nome da pasta', 'kbwizard')) ?></label>
                     <input type="text" class="form-control" id="kbwizard-folder-name" name="folder_name"
                            value="<?= $esc($cfg['folder_name'] ?? '') ?>"
                            placeholder="KB Wizard - Base de Conhecimento">
-                    <div class="form-hint"><?= $esc(__('Criada automaticamente dentro do Shared Drive se não existir.', 'kbwizard')) ?></div>
+                    <div class="form-hint">
+                        <?= $esc($isOAuth
+                            ? __('Criada automaticamente no Meu Drive. Deixe o plugin criar — o escopo drive.file não enxerga pastas criadas manualmente.', 'kbwizard')
+                            : __('Criada automaticamente dentro do Shared Drive se não existir.', 'kbwizard')) ?>
+                    </div>
                 </div>
 
                 <div class="col-md-6">
@@ -130,31 +241,33 @@ $esc = static function ($value): string {
                     <div class="form-hint"><?= $esc(__('Preenchido automaticamente após "Testar conexão". Use só se quiser apontar para uma pasta existente.', 'kbwizard')) ?></div>
                 </div>
 
-                <div class="col-12">
-                    <hr>
-                    <h4 class="mb-2"><?= $esc(__('Credencial (service account)', 'kbwizard')) ?></h4>
-                    <?php if ($hasSa): ?>
-                        <div class="alert alert-info py-2 mb-3">
-                            <i class="ti ti-key me-1"></i>
-                            <?= $esc(__('Credencial instalada:', 'kbwizard')) ?>
-                            <strong><?= $esc($driveSaEmail !== '' ? $driveSaEmail : __('service account', 'kbwizard')) ?></strong>
-                            <div class="small text-muted mt-1">
-                                <?= $esc(__('Arquivo:', 'kbwizard')) ?> <code><?= $esc($driveDataDir . '/service-account.json') ?></code>
+                <?php if (!$isOAuth): ?>
+                    <div class="col-12">
+                        <hr>
+                        <h4 class="mb-2"><?= $esc(__('Credencial (service account)', 'kbwizard')) ?></h4>
+                        <?php if ($hasSa): ?>
+                            <div class="alert alert-info py-2 mb-3">
+                                <i class="ti ti-key me-1"></i>
+                                <?= $esc(__('Credencial instalada:', 'kbwizard')) ?>
+                                <strong><?= $esc($driveSaEmail !== '' ? $driveSaEmail : __('service account', 'kbwizard')) ?></strong>
+                                <div class="small text-muted mt-1">
+                                    <?= $esc(__('Arquivo:', 'kbwizard')) ?> <code><?= $esc($driveDataDir . '/service-account.json') ?></code>
+                                </div>
+                                <label class="form-check mt-2 mb-0">
+                                    <input class="form-check-input" type="checkbox" name="remove_sa" value="1">
+                                    <span class="form-check-label"><?= $esc(__('Remover credencial ao salvar', 'kbwizard')) ?></span>
+                                </label>
                             </div>
-                            <label class="form-check mt-2 mb-0">
-                                <input class="form-check-input" type="checkbox" name="remove_sa" value="1">
-                                <span class="form-check-label"><?= $esc(__('Remover credencial ao salvar', 'kbwizard')) ?></span>
-                            </label>
+                        <?php endif; ?>
+                        <label class="form-label" for="kbwizard-sa-json">
+                            <?= $esc($hasSa ? __('Substituir JSON da service account', 'kbwizard') : __('Enviar JSON da service account', 'kbwizard')) ?>
+                        </label>
+                        <input type="file" class="form-control" id="kbwizard-sa-json" name="sa_json" accept=".json,application/json">
+                        <div class="form-hint">
+                            <?= $esc(__('O arquivo fica em files/_plugins/kbwizard/, fora do webroot. Compartilhe o Shared Drive com o e-mail da service account.', 'kbwizard')) ?>
                         </div>
-                    <?php endif; ?>
-                    <label class="form-label" for="kbwizard-sa-json">
-                        <?= $esc($hasSa ? __('Substituir JSON da service account', 'kbwizard') : __('Enviar JSON da service account', 'kbwizard')) ?>
-                    </label>
-                    <input type="file" class="form-control" id="kbwizard-sa-json" name="sa_json" accept=".json,application/json">
-                    <div class="form-hint">
-                        <?= $esc(__('O arquivo fica em files/_plugins/kbwizard/, fora do webroot. Compartilhe o Shared Drive com o e-mail da service account.', 'kbwizard')) ?>
                     </div>
-                </div>
+                <?php endif; ?>
             </div>
 
             <div class="d-flex flex-wrap gap-2 mt-4">

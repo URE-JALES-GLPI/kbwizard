@@ -55,16 +55,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
     $redirect = $webDir . '/front/config.php';
 
     $current = PluginKbwizardDriveConfig::get();
+    $authMode = (string)($_POST['auth_mode'] ?? 'oauth');
     $input = [
+        'auth_mode'       => in_array($authMode, ['oauth', 'service_account'], true) ? $authMode : 'oauth',
         'is_active'       => !empty($_POST['is_active']),
-        'shared_drive_id' => trim((string)($_POST['shared_drive_id'] ?? '')),
+        // Campos só existem no formulário do modo correspondente: preserva o
+        // valor antigo quando o outro bloco não foi renderizado.
+        'shared_drive_id' => $authMode === 'service_account'
+            ? trim((string)($_POST['shared_drive_id'] ?? ''))
+            : (string)($current['shared_drive_id'] ?? ''),
         'folder_id'       => trim((string)($_POST['folder_id'] ?? '')),
         'folder_name'     => trim((string)($_POST['folder_name'] ?? '')),
         'export_doc'      => !empty($_POST['export_doc']),
         'export_pdf'      => !empty($_POST['export_pdf']),
         'include_images'  => !empty($_POST['include_images']),
         'sa_filename'     => (string)($current['sa_filename'] ?? ''),
+        'client_id'       => $authMode === 'oauth'
+            ? trim((string)($_POST['client_id'] ?? ''))
+            : (string)($current['client_id'] ?? ''),
     ];
+
+    // Segredo nunca é reexibido; só sobrescreve quando o usuário digita algo.
+    if (trim((string)($_POST['client_secret'] ?? '')) !== '') {
+        $input['client_secret'] = trim((string)$_POST['client_secret']);
+    }
 
     // Upload do JSON da service account (fica fora do webroot).
     if (!empty($_FILES['sa_json']['tmp_name']) && is_uploaded_file($_FILES['sa_json']['tmp_name'])) {
@@ -107,7 +121,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
 
     PluginKbwizardDriveConfig::save($input);
 
-    if (isset($_POST['test_drive'])) {
+    if (isset($_POST['oauth_connect'])) {
+        $cfgNow = PluginKbwizardDriveConfig::get();
+        if (trim((string)($cfgNow['client_id'] ?? '')) === '' || trim((string)($cfgNow['client_secret'] ?? '')) === '') {
+            Session::addMessageAfterRedirect(
+                __('Informe o Client ID e o Client secret antes de conectar.', 'kbwizard'),
+                true,
+                ERROR
+            );
+        } else {
+            try {
+                $state = bin2hex(random_bytes(16));
+                $_SESSION['kbwizard_oauth_state'] = $state;
+                header('Location: ' . PluginKbwizardDriveOAuth::authUrl($state));
+                exit;
+            } catch (Throwable $e) {
+                Session::addMessageAfterRedirect($e->getMessage(), true, ERROR);
+            }
+        }
+    } elseif (isset($_POST['oauth_disconnect'])) {
+        PluginKbwizardDriveConfig::save(['refresh_token' => '', 'google_email' => '']);
+        Session::addMessageAfterRedirect(__('Conta Google desconectada.', 'kbwizard'), true, INFO);
+    } elseif (isset($_POST['test_drive'])) {
         $client = PluginKbwizardDrive::fromConfig();
         if ($client === null) {
             $res = ['ok' => false, 'message' => __('Salve a service account e o ID do Shared Drive antes de testar.', 'kbwizard')];
@@ -234,6 +269,19 @@ if (function_exists('plugin_kbwizard_create_drive_tables')) {
 
 $driveCfg     = PluginKbwizardDriveConfig::get();
 $driveStats   = PluginKbwizardDriveSync::stats();
+$driveAuthMode = in_array((string)($driveCfg['auth_mode'] ?? 'oauth'), ['oauth', 'service_account'], true)
+    ? (string)($driveCfg['auth_mode'] ?? 'oauth')
+    : 'oauth';
+$driveGoogleEmail = (string)($driveCfg['google_email'] ?? '');
+$driveHasSecret   = trim((string)($driveCfg['client_secret'] ?? '')) !== '';
+$driveRedirectUri = '';
+try {
+    if (class_exists('PluginKbwizardDriveOAuth')) {
+        $driveRedirectUri = PluginKbwizardDriveOAuth::redirectUri();
+    }
+} catch (Throwable $e) {
+    $driveRedirectUri = '';
+}
 $driveHasSa   = PluginKbwizardDriveConfig::hasServiceAccount();
 $driveSaEmail = '';
 if ($driveHasSa) {

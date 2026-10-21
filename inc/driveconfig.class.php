@@ -25,6 +25,7 @@ class PluginKbwizardDriveConfig
     {
         return [
             'id'             => 1,
+            'auth_mode'      => 'oauth',
             'is_active'      => 0,
             'shared_drive_id' => '',
             'folder_id'      => '',
@@ -33,6 +34,10 @@ class PluginKbwizardDriveConfig
             'export_pdf'     => 1,
             'include_images' => 1,
             'sa_filename'    => '',
+            'client_id'      => '',
+            'client_secret'  => '',
+            'refresh_token'  => '',
+            'google_email'   => '',
             'secret'         => '',
             'last_error'     => '',
             'date_mod'       => null,
@@ -142,8 +147,9 @@ class PluginKbwizardDriveConfig
         }
 
         $allowed = [
-            'is_active', 'shared_drive_id', 'folder_id', 'folder_name',
+            'auth_mode', 'is_active', 'shared_drive_id', 'folder_id', 'folder_name',
             'export_doc', 'export_pdf', 'include_images', 'sa_filename', 'last_error', 'secret',
+            'client_id', 'client_secret', 'refresh_token', 'google_email',
         ];
         $values = [];
         foreach ($allowed as $key) {
@@ -240,8 +246,17 @@ class PluginKbwizardDriveConfig
     public static function isConfigured(): bool
     {
         $cfg = self::get();
-        return !empty($cfg['is_active'])
-            && trim((string)$cfg['shared_drive_id']) !== ''
+        if (empty($cfg['is_active'])) {
+            return false;
+        }
+
+        if (($cfg['auth_mode'] ?? 'oauth') === 'oauth') {
+            return trim((string)($cfg['client_id'] ?? '')) !== ''
+                && trim((string)($cfg['client_secret'] ?? '')) !== ''
+                && trim((string)($cfg['refresh_token'] ?? '')) !== '';
+        }
+
+        return trim((string)($cfg['shared_drive_id'] ?? '')) !== ''
             && self::hasServiceAccount();
     }
 }

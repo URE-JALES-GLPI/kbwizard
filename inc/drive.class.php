@@ -19,6 +19,8 @@ class PluginKbwizardDrive
 
     /** @var array<string,mixed> */
     private array $sa;
+    /** @var array{client_id:string,client_secret:string,refresh_token:string}|null */
+    private ?array $oauth = null;
     private string $sharedDriveId;
     private string $folderId;
     private string $lastError = '';
@@ -26,25 +28,52 @@ class PluginKbwizardDrive
     /** @var string|null Token OAuth em memória para a requisição atual */
     private static ?string $tokenCache = null;
     private static int $tokenExpires = 0;
+    /** @var string Identifica a credencial dona do token em cache */
+    private static string $tokenKey = '';
 
-    public function __construct(array $serviceAccount, string $sharedDriveId, string $folderId = '')
+    public function __construct(array $serviceAccount, string $sharedDriveId, string $folderId = '', ?array $oauth = null)
     {
         $this->sa = $serviceAccount;
+        $this->oauth = $oauth;
         $this->sharedDriveId = trim($sharedDriveId);
         $this->folderId = trim($folderId);
     }
 
     /**
      * Monta o cliente a partir da configuração do plugin.
+     *
+     * Dois modos:
+     *  - oauth: conta Google comum (Gmail), escopo drive.file, Meu Drive;
+     *  - service_account: Google Workspace com Shared Drive.
      */
     public static function fromConfig(): ?self
     {
         $cfg = PluginKbwizardDriveConfig::get();
+
+        if (($cfg['auth_mode'] ?? 'oauth') === 'oauth') {
+            $clientId     = trim((string)($cfg['client_id'] ?? ''));
+            $clientSecret = trim((string)($cfg['client_secret'] ?? ''));
+            $refreshToken = trim((string)($cfg['refresh_token'] ?? ''));
+            if ($clientId === '' || $clientSecret === '' || $refreshToken === '') {
+                return null;
+            }
+            return new self([], '', (string)($cfg['folder_id'] ?? ''), [
+                'client_id'     => $clientId,
+                'client_secret' => $clientSecret,
+                'refresh_token' => $refreshToken,
+            ]);
+        }
+
         $sa = PluginKbwizardDriveConfig::loadServiceAccount();
         if ($sa === null || trim((string)$cfg['shared_drive_id']) === '') {
             return null;
         }
         return new self($sa, (string)$cfg['shared_drive_id'], (string)$cfg['folder_id']);
+    }
+
+    public function isOAuth(): bool
+    {
+        return $this->oauth !== null;
     }
 
     public function getLastError(): string
@@ -64,7 +93,11 @@ class PluginKbwizardDrive
     public function testConnection(): array
     {
         try {
-            $drive = $this->apiGet('/drives/' . rawurlencode($this->sharedDriveId), ['fields' => 'id,name']);
+            $driveName = '';
+            if ($this->sharedDriveId !== '') {
+                $drive = $this->apiGet('/drives/' . rawurlencode($this->sharedDriveId), ['fields' => 'id,name']);
+                $driveName = (string)($drive['name'] ?? '');
+            }
             $folderId = $this->ensureFolder();
             $folder = $this->apiGet('/files/' . rawurlencode($folderId), [
                 'fields' => 'id,name,webViewLink,trashed,mimeType',
@@ -76,7 +109,7 @@ class PluginKbwizardDrive
             return [
                 'ok'         => true,
                 'message'    => __('Conexão com o Google Drive validada.', 'kbwizard'),
-                'drive'      => (string)($drive['name'] ?? ''),
+                'drive'      => $driveName,
                 'folder_id'  => (string)($folder['id'] ?? $folderId),
                 'folder_url' => (string)($folder['webViewLink'] ?? ''),
             ];
@@ -124,11 +157,15 @@ class PluginKbwizardDrive
             return $found;
         }
 
-        $created = $this->apiPost('/files', [
+        $metadata = [
             'name'     => $name,
             'mimeType' => 'application/vnd.google-apps.folder',
-            'parents'  => [$this->sharedDriveId],
-        ], ['supportsAllDrives' => 'true', 'fields' => 'id']);
+        ];
+        if ($this->sharedDriveId !== '') {
+            // Shared Drive: precisa nascer na raiz do drive.
+            $metadata['parents'] = [$this->sharedDriveId];
+        }
+        $created = $this->apiPost('/files', $metadata, ['supportsAllDrives' => 'true', 'fields' => 'id']);
 
         if (empty($created['id'])) {
             throw new RuntimeException(__('Não foi possível criar a pasta no Shared Drive.', 'kbwizard'));
@@ -140,15 +177,18 @@ class PluginKbwizardDrive
     private function findFolderByName(string $name): ?string
     {
         $q = sprintf("name = '%s' and mimeType = 'application/vnd.google-apps.folder' and trashed = false", $this->escapeQuery($name));
-        $res = $this->apiGet('/files', [
-            'q'                          => $q,
-            'corpora'                    => 'drive',
-            'driveId'                    => $this->sharedDriveId,
-            'includeItemsFromAllDrives'  => 'true',
-            'supportsAllDrives'          => 'true',
-            'pageSize'                   => '5',
-            'fields'                     => 'files(id,name)',
-        ]);
+        $params = [
+            'q'                         => $q,
+            'includeItemsFromAllDrives' => 'true',
+            'supportsAllDrives'         => 'true',
+            'pageSize'                  => '5',
+            'fields'                    => 'files(id,name)',
+        ];
+        if ($this->sharedDriveId !== '') {
+            $params['corpora'] = 'drive';
+            $params['driveId'] = $this->sharedDriveId;
+        }
+        $res = $this->apiGet('/files', $params);
         foreach (($res['files'] ?? []) as $file) {
             if (!empty($file['id'])) {
                 return (string)$file['id'];
@@ -167,15 +207,18 @@ class PluginKbwizardDrive
         if ($kind !== '') {
             $q .= sprintf(" and appProperties has { key='kbwizard_kind' and value='%s' }", $this->escapeQuery($kind));
         }
-        $res = $this->apiGet('/files', [
+        $params = [
             'q'                         => $q,
-            'corpora'                   => 'drive',
-            'driveId'                   => $this->sharedDriveId,
             'includeItemsFromAllDrives' => 'true',
             'supportsAllDrives'         => 'true',
             'pageSize'                  => '10',
             'fields'                    => 'files(id,name,mimeType)',
-        ]);
+        ];
+        if ($this->sharedDriveId !== '') {
+            $params['corpora'] = 'drive';
+            $params['driveId'] = $this->sharedDriveId;
+        }
+        $res = $this->apiGet('/files', $params);
         foreach (($res['files'] ?? []) as $file) {
             if (!empty($file['id'])) {
                 return [
@@ -305,8 +348,18 @@ class PluginKbwizardDrive
 
     private function accessToken(): string
     {
-        if (self::$tokenCache !== null && self::$tokenExpires > time() + 60) {
+        $cacheKey = $this->oauth !== null
+            ? 'oauth|' . $this->oauth['client_id']
+            : 'sa|' . (string)($this->sa['client_email'] ?? '');
+
+        if (self::$tokenCache !== null
+            && self::$tokenKey === $cacheKey
+            && self::$tokenExpires > time() + 60) {
             return self::$tokenCache;
+        }
+
+        if ($this->oauth !== null) {
+            return $this->oauthAccessToken($cacheKey);
         }
 
         $now = time();
@@ -355,7 +408,30 @@ class PluginKbwizardDrive
         }
 
         self::$tokenCache = (string)$json['access_token'];
+        self::$tokenKey = $cacheKey;
         self::$tokenExpires = $now + (int)($json['expires_in'] ?? 3600);
+        return self::$tokenCache;
+    }
+
+    /**
+     * Renova o token da conta Google conectada (refresh_token).
+     */
+    private function oauthAccessToken(string $cacheKey): string
+    {
+        if ($this->oauth === null) {
+            throw new RuntimeException(__('Credencial OAuth ausente.', 'kbwizard'));
+        }
+        $json = PluginKbwizardDriveOAuth::refresh(
+            $this->oauth['client_id'],
+            $this->oauth['client_secret'],
+            $this->oauth['refresh_token']
+        );
+        if (empty($json['access_token'])) {
+            throw new RuntimeException(__('O Google não retornou access_token. Reconecte a conta Google.', 'kbwizard'));
+        }
+        self::$tokenCache = (string)$json['access_token'];
+        self::$tokenKey = $cacheKey;
+        self::$tokenExpires = time() + (int)($json['expires_in'] ?? 3600);
         return self::$tokenCache;
     }
 

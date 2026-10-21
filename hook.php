@@ -5,6 +5,33 @@
  */
 
 /**
+ * Verifica se uma coluna existe (compatível com versões do GLPI sem fieldExists).
+ */
+function plugin_kbwizard_drive_column_exists(string $table, string $field): bool {
+    /** @var DBmysql $DB */
+    global $DB;
+    if (!$DB instanceof DBmysql) {
+        return false;
+    }
+    try {
+        if (method_exists($DB, 'fieldExists')) {
+            return (bool)$DB->fieldExists($table, $field);
+        }
+    } catch (Throwable $e) {
+        // cai no fallback abaixo
+    }
+    try {
+        $result = $DB->doQuery("SHOW COLUMNS FROM `$table` LIKE '" . addslashes($field) . "'");
+        if ($result) {
+            return $DB->numRows($result) > 0;
+        }
+    } catch (Throwable $e) {
+        return false;
+    }
+    return false;
+}
+
+/**
  * Cria as tabelas da sincronização com o Google Drive e registra o cron.
  * Idempotente: pode ser chamada em install, update e auto-reparo.
  */
@@ -23,6 +50,7 @@ function plugin_kbwizard_create_drive_tables(): void {
             $table = 'glpi_plugin_kbwizard_drive_config';
             $DB->doQuery("CREATE TABLE IF NOT EXISTS `$table` (
                 `id` int unsigned NOT NULL AUTO_INCREMENT,
+                `auth_mode` varchar(20) NOT NULL DEFAULT 'oauth',
                 `is_active` tinyint(1) NOT NULL DEFAULT 0,
                 `shared_drive_id` varchar(191) NOT NULL DEFAULT '',
                 `folder_id` varchar(191) NOT NULL DEFAULT '',
@@ -31,11 +59,30 @@ function plugin_kbwizard_create_drive_tables(): void {
                 `export_pdf` tinyint(1) NOT NULL DEFAULT 1,
                 `include_images` tinyint(1) NOT NULL DEFAULT 1,
                 `sa_filename` varchar(191) NOT NULL DEFAULT '',
+                `client_id` varchar(191) NOT NULL DEFAULT '',
+                `client_secret` varchar(191) NOT NULL DEFAULT '',
+                `refresh_token` text,
+                `google_email` varchar(191) NOT NULL DEFAULT '',
                 `secret` varchar(64) NOT NULL DEFAULT '',
                 `last_error` text,
                 `date_mod` timestamp NULL DEFAULT NULL,
                 PRIMARY KEY (`id`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
+        }
+
+        // Migração idempotente para instalações que já tinham a tabela (1.3.x).
+        $table = 'glpi_plugin_kbwizard_drive_config';
+        $newColumns = [
+            'auth_mode'     => "varchar(20) NOT NULL DEFAULT 'oauth'",
+            'client_id'     => "varchar(191) NOT NULL DEFAULT ''",
+            'client_secret' => "varchar(191) NOT NULL DEFAULT ''",
+            'refresh_token' => 'text',
+            'google_email'  => "varchar(191) NOT NULL DEFAULT ''",
+        ];
+        foreach ($newColumns as $field => $ddl) {
+            if (!plugin_kbwizard_drive_column_exists($table, $field)) {
+                $DB->doQuery("ALTER TABLE `$table` ADD `$field` $ddl");
+            }
         }
 
         if (!$DB->tableExists('glpi_plugin_kbwizard_drive_files')) {
@@ -238,6 +285,12 @@ function plugin_kbwizard_update($current_version) {
     if (version_compare($current_version, '1.3.0', '<')) {
         plugin_kbwizard_create_drive_tables();
         Toolbox::logInFile('kbwizard', "KB Wizard atualizado para 1.3.0 - tabelas de sincronização do Drive criadas\n");
+    }
+
+    // Atualização para 1.4.0 - OAuth com conta Google (colunas de autenticação)
+    if (version_compare($current_version, '1.4.0', '<')) {
+        plugin_kbwizard_create_drive_tables();
+        Toolbox::logInFile('kbwizard', "KB Wizard atualizado para 1.4.0 - colunas de OAuth verificadas\n");
     }
 
     // Atualizar direitos de perfil se existir

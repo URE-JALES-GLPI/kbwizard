@@ -1,6 +1,15 @@
 # Changelog
 
-## 1.3.0 - 2026-10-21 Sincronização automática com Google Drive — ATUAL
+## 1.4.0 - 2026-10-21 OAuth com conta Google (sem Workspace) — ATUAL
+- **Feature**: sincronização passa a funcionar com **conta Gmail comum** via **OAuth 2.0** (`inc/driveoauth.class.php` + `front/oauth2callback.php`), sem Google Workspace e sem Shared Drive
+- **Escopo `drive.file`**: o plugin só enxerga os arquivos que ele mesmo criou — escopo não sensível, sem verificação do Google; os arquivos ficam no **Meu Drive** da conta conectada (15 GB)
+- **UI**: seletor de autenticação (**Conta Google** ou **Service account**), campos Client ID/secret, **Redirect URI** pronto para copiar, botões **Conectar conta Google** / **Desconectar** e status da conta conectada
+- **Cliente Drive**: `PluginKbwizardDrive::fromConfig()` escolhe entre `refresh_token` (OAuth) e JWT da service account; buscas e criação de pasta funcionam tanto no Meu Drive quanto em Shared Drive; token em cache passa a ser identificado por credencial
+- **DB**: colunas `auth_mode`, `client_id`, `client_secret`, `refresh_token`, `google_email` em `glpi_plugin_kbwizard_drive_config`, com migração idempotente para instalações 1.3.x
+- **Fix**: `rawRequest()` não entra mais em recursão ao obter o token; retry só em métodos idempotentes (evita Doc/PDF duplicado); renovação automática em 401
+- **Compat**: `setup.php`/`composer.json` em `1.4.0`; nenhuma dependência composer adicionada
+
+## 1.3.0 - 2026-10-21 Sincronização automática com Google Drive
 - **Feature**: espelha **todos os artigos da base** em um Shared Drive como **Google Doc + PDF**, mantendo o mesmo `fileId` a cada atualização (o NotebookLM continua sincronizando a mesma fonte)
 - **Feature**: `inc/drive.class.php` — cliente Drive API v3 sem dependências: JWT RS256 com service account (openssl), `supportsAllDrives`, criação/atualização de Doc a partir de HTML, `files.export` para PDF, retry em 429/5xx
 - **Feature**: `inc/drivesync.class.php` + `glpi_plugin_kbwizard_drive_files` — fila por artigo com hash de conteúdo (não reenvia o que não mudou), 3 tentativas e estado `pending/synced/error/skipped`
