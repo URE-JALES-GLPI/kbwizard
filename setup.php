@@ -1,7 +1,7 @@
 <?php
 /**
  * KB Wizard - Passo a Passo para Base de Conhecimento
- * GLPI 11.0 a 12.0 - v1.2.0
+ * GLPI 11.0 a 12.0 - v1.3.0
  */
 
 // Carrega Toolbox central (evita divergência plugins/marketplace); fallback silencioso se GLPI ainda não carregou
@@ -10,7 +10,7 @@ if (is_file(__DIR__ . '/inc/toolbox.class.php')) {
 }
 
 if (!defined('PLUGIN_KBWIZARD_VERSION')) {
-    define('PLUGIN_KBWIZARD_VERSION', '1.2.0');
+    define('PLUGIN_KBWIZARD_VERSION', '1.3.0');
 }
 if (!defined('PLUGIN_KBWIZARD_MIN_GLPI')) {
     define('PLUGIN_KBWIZARD_MIN_GLPI', '11.0.0');
@@ -72,6 +72,19 @@ function plugin_init_kbwizard() {
     $PLUGIN_HOOKS['post_show_item']['kbwizard'] = 'plugin_kbwizard_post_show_item';
     $PLUGIN_HOOKS['post_show_tab']['kbwizard'] = 'plugin_kbwizard_post_show_item';
     $PLUGIN_HOOKS['config_page']['kbwizard'] = 'front/config.php';
+
+    // Sincronização com Google Drive: marca artigos/passos alterados como pendentes.
+    $PLUGIN_HOOKS['item_add']['kbwizard'] = [
+        'KnowbaseItem'       => 'plugin_kbwizard_item_changed',
+        'PluginKbwizardStep' => 'plugin_kbwizard_item_changed',
+    ];
+    $PLUGIN_HOOKS['item_update']['kbwizard'] = [
+        'KnowbaseItem'       => 'plugin_kbwizard_item_changed',
+        'PluginKbwizardStep' => 'plugin_kbwizard_item_changed',
+    ];
+    $PLUGIN_HOOKS['item_purge']['kbwizard'] = [
+        'KnowbaseItem' => 'plugin_kbwizard_item_purged',
+    ];
 
     // Auto-migração silenciosa: protege updates por cópia de arquivos que nunca
     // passam por Configurar > Plugins > Atualizar. Não usa Migration aqui para
@@ -233,6 +246,54 @@ function plugin_kbwizard_post_show_item($params) {
         } else {
             if (function_exists('error_log')) error_log('[kbwizard] post_show_item erro: ' . $e->getMessage());
             try { if (class_exists('Toolbox')) Toolbox::logInFile('kbwizard', 'post_show_item erro: '.$e->getMessage()."\n".$e->getTraceAsString()); } catch(Throwable $e2){}
+        }
+    }
+}
+
+/**
+ * Hook item_add/item_update: artigo ou passo manual alterado entra na fila
+ * de sincronização do Google Drive. Nunca deve derrubar a requisição.
+ *
+ * @param mixed $item
+ */
+function plugin_kbwizard_item_changed($item) {
+    try {
+        if (!is_object($item)) {
+            return;
+        }
+        if ($item instanceof KnowbaseItem) {
+            $kbId = (int)$item->getID();
+            if ($kbId > 0) {
+                PluginKbwizardDriveSync::markDirty($kbId, 'artigo alterado');
+            }
+            return;
+        }
+        if ($item instanceof PluginKbwizardStep) {
+            PluginKbwizardDriveSync::markDirtyByStep($item);
+        }
+    } catch (Throwable $e) {
+        if (class_exists('PluginKbwizardToolbox')) {
+            PluginKbwizardToolbox::log('item_changed hook erro: ' . $e->getMessage());
+        }
+    }
+}
+
+/**
+ * Hook item_purge: remove os arquivos espelho do Drive.
+ *
+ * @param mixed $item
+ */
+function plugin_kbwizard_item_purged($item) {
+    try {
+        if ($item instanceof KnowbaseItem) {
+            $kbId = (int)$item->getID();
+            if ($kbId > 0) {
+                PluginKbwizardDriveSync::purgeItem($kbId);
+            }
+        }
+    } catch (Throwable $e) {
+        if (class_exists('PluginKbwizardToolbox')) {
+            PluginKbwizardToolbox::log('item_purged hook erro: ' . $e->getMessage());
         }
     }
 }

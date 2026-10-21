@@ -19,9 +19,126 @@ if (file_exists(__DIR__ . '/../inc/toolbox.class.php') && !class_exists('PluginK
 
 global $CFG_GLPI;
 
-Session::checkRight(KnowbaseItem::$rightname, UPDATE);
-
 $knowbaseitems_id = (int)($_POST['knowbaseitems_id'] ?? $_GET['knowbaseitems_id'] ?? 0);
+
+if ($knowbaseitems_id) {
+    Session::checkRight(KnowbaseItem::$rightname, UPDATE);
+} else {
+    // Página global (Configurar > Plugins > KB Wizard): só administradores.
+    Session::checkRight('config', UPDATE);
+}
+
+/**
+ * Configuração global da sincronização com o Google Drive.
+ * Salva os campos e executa a ação escolhida (testar / sincronizar / reprocessar).
+ */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
+    // CSRF defensivo dual GLPI 11/12 (mesmo padrão do restante do arquivo).
+    if (isset($_POST['_glpi_csrf_token']) && method_exists('Session', 'checkCSRF')) {
+        try {
+            Session::checkCSRF($_POST);
+        } catch (Throwable $e) {
+            if (class_exists('PluginKbwizardToolbox')) {
+                PluginKbwizardToolbox::log('CSRF double-check drive ignorado: ' . $e->getMessage());
+            }
+        }
+    }
+
+    if (function_exists('plugin_kbwizard_create_drive_tables')) {
+        plugin_kbwizard_create_drive_tables();
+        PluginKbwizardDriveConfig::resetCache();
+    }
+
+    $webDir = class_exists('PluginKbwizardToolbox')
+        ? PluginKbwizardToolbox::getWebDir()
+        : (($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard');
+    $redirect = $webDir . '/front/config.php';
+
+    $current = PluginKbwizardDriveConfig::get();
+    $input = [
+        'is_active'       => !empty($_POST['is_active']),
+        'shared_drive_id' => trim((string)($_POST['shared_drive_id'] ?? '')),
+        'folder_id'       => trim((string)($_POST['folder_id'] ?? '')),
+        'folder_name'     => trim((string)($_POST['folder_name'] ?? '')),
+        'export_doc'      => !empty($_POST['export_doc']),
+        'export_pdf'      => !empty($_POST['export_pdf']),
+        'include_images'  => !empty($_POST['include_images']),
+        'sa_filename'     => (string)($current['sa_filename'] ?? ''),
+    ];
+
+    // Upload do JSON da service account (fica fora do webroot).
+    if (!empty($_FILES['sa_json']['tmp_name']) && is_uploaded_file($_FILES['sa_json']['tmp_name'])) {
+        $raw = (string)file_get_contents($_FILES['sa_json']['tmp_name']);
+        $json = json_decode($raw, true);
+        if (!is_array($json) || empty($json['client_email']) || empty($json['private_key']) || empty($json['token_uri'])) {
+            Session::addMessageAfterRedirect(
+                __('O arquivo enviado não é um JSON válido de service account.', 'kbwizard'),
+                true,
+                ERROR
+            );
+        } else {
+            $dir = PluginKbwizardDriveConfig::dataDir();
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0700, true);
+            }
+            $target = PluginKbwizardDriveConfig::serviceAccountPath();
+            if (@file_put_contents($target, $raw) === false) {
+                Session::addMessageAfterRedirect(
+                    __('Não foi possível gravar a credencial em files/_plugins/kbwizard.', 'kbwizard'),
+                    true,
+                    ERROR
+                );
+            } else {
+                @chmod($target, 0600);
+                $input['sa_filename'] = basename($target);
+                Session::addMessageAfterRedirect(__('Credencial da service account salva.', 'kbwizard'), true, INFO);
+            }
+        }
+    }
+
+    if (!empty($_POST['remove_sa'])) {
+        $target = PluginKbwizardDriveConfig::serviceAccountPath();
+        if (is_file($target)) {
+            @unlink($target);
+        }
+        $input['sa_filename'] = '';
+        Session::addMessageAfterRedirect(__('Credencial removida.', 'kbwizard'), true, INFO);
+    }
+
+    PluginKbwizardDriveConfig::save($input);
+
+    if (isset($_POST['test_drive'])) {
+        $client = PluginKbwizardDrive::fromConfig();
+        if ($client === null) {
+            $res = ['ok' => false, 'message' => __('Salve a service account e o ID do Shared Drive antes de testar.', 'kbwizard')];
+        } else {
+            $res = $client->testConnection();
+            if (!empty($res['ok']) && !empty($res['folder_id'])) {
+                PluginKbwizardDriveConfig::setFolderId((string)$res['folder_id']);
+            }
+        }
+        $_SESSION['kbwizard_drive_test'] = $res;
+    } elseif (isset($_POST['sync_all'])) {
+        $queued = PluginKbwizardDriveSync::markAllDirty();
+        Session::addMessageAfterRedirect(
+            sprintf(__('%d artigo(s) enfileirado(s) para sincronização.', 'kbwizard'), $queued),
+            true,
+            INFO
+        );
+    } elseif (isset($_POST['retry_errors'])) {
+        $retried = PluginKbwizardDriveSync::retryErrors();
+        Session::addMessageAfterRedirect(
+            sprintf(__('%d erro(s) reenfileirado(s).', 'kbwizard'), $retried),
+            true,
+            INFO
+        );
+    } else {
+        Session::addMessageAfterRedirect(__('Configuração do Google Drive salva.', 'kbwizard'), true, INFO);
+    }
+
+    Html::redirect($redirect);
+    exit;
+}
 
 // Se POST com knowbaseitems_id = salva config por artigo (fluxo da aba)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
@@ -109,7 +226,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
 // Caso GET sem id = página global de ajuda (config_page)
 Html::header(__('KB Wizard - Passo a Passo', 'kbwizard'), $_SERVER['PHP_SELF'], 'config', 'plugin');
 
+// Garante tabelas do Drive (instalações antigas / cópia de arquivos).
+if (function_exists('plugin_kbwizard_create_drive_tables')) {
+    plugin_kbwizard_create_drive_tables();
+    PluginKbwizardDriveConfig::resetCache();
+}
+
+$driveCfg     = PluginKbwizardDriveConfig::get();
+$driveStats   = PluginKbwizardDriveSync::stats();
+$driveHasSa   = PluginKbwizardDriveConfig::hasServiceAccount();
+$driveSaEmail = '';
+if ($driveHasSa) {
+    $sa = PluginKbwizardDriveConfig::loadServiceAccount();
+    $driveSaEmail = (string)($sa['client_email'] ?? '');
+}
+$driveTest = null;
+if (isset($_SESSION['kbwizard_drive_test'])) {
+    $driveTest = $_SESSION['kbwizard_drive_test'];
+    unset($_SESSION['kbwizard_drive_test']);
+}
+$driveWebDir    = class_exists('PluginKbwizardToolbox')
+    ? PluginKbwizardToolbox::getWebDir()
+    : (($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard');
+$driveActionUrl = $driveWebDir . '/front/config.php';
+$driveDataDir   = PluginKbwizardDriveConfig::dataDir();
+$driveTemplate  = __DIR__ . '/../templates/config_drive.html.php';
+
 echo "<div class='container-fluid'>";
+
+if (is_file($driveTemplate)) {
+    include $driveTemplate;
+}
+
 echo "<div class='card'>";
 echo "<div class='card-header'><h3><i class='ti ti-list-check me-2'></i>".__('KB Wizard — Ajuda', 'kbwizard')."</h3></div>";
 echo "<div class='card-body'>";

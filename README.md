@@ -8,6 +8,7 @@ Transforma qualquer artigo da **Base de Conhecimento** em um **guia guiado passo
 - Exibe o conteúdo em **modal guiado**: 1 passo por vez, com **barra de progresso**, **lista lateral**, navegação **Anterior/Próximo**, atalhos de teclado (← → / ESC) e botão **Concluir**.
 - Salva **progresso por usuário** (continuar de onde parou).
 - **Exportar PDF**: gera o artigo inteiro em PDF (HTML original preservado, apenas as linhas `---PASSO---` são removidas) com acentuação correta — ideal para anexar em ferramentas como o NotebookLM.
+- **Sincronização com Google Drive** (opcional): espelha **todos os artigos** em um Shared Drive como **Google Doc + PDF**, atualizando sozinho quando o artigo muda — o Google Doc é o que o NotebookLM sincroniza automaticamente.
 - Dois modos:
   - **Automático**: divide o campo `answer` do artigo automaticamente. Critérios: `<hr>` , `<h2>` , `<hr>` ou `<h2>` (padrão) ou marcador `---PASSO---`.
   - **Manual**: você cadastra passos com título + conteúdo rico (HTML) em ordem definida.
@@ -64,6 +65,31 @@ Transforma qualquer artigo da **Base de Conhecimento** em um **guia guiado passo
 
 > O PDF é gerado pelo navegador (não pelo servidor): nenhuma biblioteca extra é necessária e a fidelidade visual é a mesma da tela.
 
+## ☁️ Sincronização automática com Google Drive (NotebookLM)
+
+O NotebookLM só atualiza sozinho fontes que sejam **Google Docs nativos** — PDF importado continua sendo um snapshot. Por isso o plugin publica cada artigo **duas vezes** no Drive: um **Google Doc** (a fonte que o NotebookLM sincroniza) e um **PDF** (consulta/impressão). Os dois são atualizados no mesmo `fileId`, então o link nunca muda.
+
+### Pré-requisitos
+1. **Google Workspace** com um **Shared Drive** (service account não tem cota no "Meu Drive").
+2. Projeto no Google Cloud com a **Drive API** habilitada e uma **service account** (chave JSON).
+3. Adicione o e-mail da service account como **Gerente de conteúdo** no Shared Drive.
+4. `url_base` do GLPI configurado (Configurar > Geral) — é a URL que o Google usa para baixar as imagens.
+
+### Configuração
+1. **Configurar > Plugins > KB Wizard** (ícone de engrenagem) → cartão **Sincronização com o Google Drive**.
+2. Envie o **JSON da service account** e informe o **ID do Shared Drive**.
+3. Clique **Testar conexão** (cria/localiza a pasta automaticamente) e depois **Salvar**.
+4. Marque **Ativar sincronização** e use **Sincronizar todos os artigos**.
+5. Confirme em **Configurar > Ações automáticas** que `PluginKbwizardCron::sync` está **aguardando execução** (roda a cada minuto, 5 artigos por execução).
+
+### Como funciona
+- Salvar um artigo (ou um passo manual) coloca o artigo na fila.
+- O cron gera/atualiza o Google Doc, exporta o PDF pelo próprio Google e grava o estado.
+- Excluir o artigo em definitivo move Doc/PDF para a lixeira do Drive.
+- Falhas aparecem na tela de configuração; **Reprocessar erros** reenfileira os itens.
+
+> Imagens anexadas ao artigo são servidas por URL assinada de curta duração (`front/driveimage.php`), porque o Google as baixa sem sessão. O token é vinculado ao artigo e expira em 30 minutos.
+
 ## 🛠️ Dicas de autoria
 
 Escreva seu guia normalmente e use separadores:
@@ -95,6 +121,8 @@ Testar conectividade...
 - `glpi_plugin_kbwizard_configs` — config por artigo
 - `glpi_plugin_kbwizard_steps` — passos manuais
 - `glpi_plugin_kbwizard_progress` — progresso do usuário
+- `glpi_plugin_kbwizard_drive_config` — configuração da sincronização com o Drive
+- `glpi_plugin_kbwizard_drive_files` — fila/estado (fileId do Doc e do PDF, hash, erros)
 
 Desinstalar remove as tabelas.
 

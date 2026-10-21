@@ -1,6 +1,19 @@
 # Changelog
 
-## 1.2.0 - 2026-10-21 Exportação em PDF — ATUAL
+## 1.3.0 - 2026-10-21 Sincronização automática com Google Drive — ATUAL
+- **Feature**: espelha **todos os artigos da base** em um Shared Drive como **Google Doc + PDF**, mantendo o mesmo `fileId` a cada atualização (o NotebookLM continua sincronizando a mesma fonte)
+- **Feature**: `inc/drive.class.php` — cliente Drive API v3 sem dependências: JWT RS256 com service account (openssl), `supportsAllDrives`, criação/atualização de Doc a partir de HTML, `files.export` para PDF, retry em 429/5xx
+- **Feature**: `inc/drivesync.class.php` + `glpi_plugin_kbwizard_drive_files` — fila por artigo com hash de conteúdo (não reenvia o que não mudou), 3 tentativas e estado `pending/synced/error/skipped`
+- **Feature**: `inc/cron.class.php` + `CronTask::register()` — lote de 5 artigos por minuto, volume no log de ações automáticas
+- **Feature**: hooks `item_add`/`item_update` em `KnowbaseItem` e `PluginKbwizardStep` marcam o artigo como pendente; `item_purge` move Doc/PDF para a lixeira do Drive
+- **Feature**: `front/driveimage.php` — proxy de imagem com HMAC de curta duração, restrito a documentos vinculados ao artigo (o Google precisa baixar imagens sem sessão para embutir no Doc)
+- **Feature**: tela de configuração global (`front/config.php` + `templates/config_drive.html.php`): service account em `files/_plugins/kbwizard/` (fora do webroot), ID do Shared Drive, pasta, toggles, **Testar conexão**, **Sincronizar todos** e **Reprocessar erros**
+- **PDF sem TCPDF**: o PDF é exportado pelo próprio Google a partir do Doc — mesma renderização, sem dependência de biblioteca no servidor
+- **Segurança**: credencial nunca vai ao banco nem ao webroot; token de imagem expira em 30 min e é vinculado ao `knowbaseitems_id`; SVG bloqueado no proxy
+- **DB**: novas tabelas `glpi_plugin_kbwizard_drive_config` e `glpi_plugin_kbwizard_drive_files` (criadas no install, no update 1.3.0 e no auto-reparo da tela de config)
+- **Compat**: `setup.php`/`composer.json` em `1.3.0`; nenhuma dependência composer adicionada
+
+## 1.2.0 - 2026-10-21 Exportação em PDF
 - **Feature**: novo botão **Exportar PDF** no banner do artigo (`templates/wizard_banner.html.php`, `public/js/kbwizard.js` no fallback AJAX) que abre `front/export.php?knowbaseitems_id=X` em nova aba
 - **Feature**: `front/export.php` renderiza o **HTML integral do artigo** (campo `answer`) em página limpa, com permissão `knowbase`, e dispara o diálogo de impressão — o PDF é salvo pelo navegador via **Salvar como PDF**
 - **Fix acentos**: página de exportação usa `header('Content-Type: text/html; charset=UTF-8')` + `<meta charset="utf-8">` e fontes do sistema; acentuação, imagens e formatação saem exatamente como no artigo

@@ -4,6 +4,83 @@
  * Instalação/atualização/desinstalação - compatível GLPI 11/12
  */
 
+/**
+ * Cria as tabelas da sincronização com o Google Drive e registra o cron.
+ * Idempotente: pode ser chamada em install, update e auto-reparo.
+ */
+function plugin_kbwizard_create_drive_tables(): void {
+    /** @var DBmysql $DB */
+    global $DB;
+    if (!$DB instanceof DBmysql) {
+        return;
+    }
+
+    try {
+        $charset = DBConnection::getDefaultCharset();
+        $collation = DBConnection::getDefaultCollation();
+
+        if (!$DB->tableExists('glpi_plugin_kbwizard_drive_config')) {
+            $table = 'glpi_plugin_kbwizard_drive_config';
+            $DB->doQuery("CREATE TABLE IF NOT EXISTS `$table` (
+                `id` int unsigned NOT NULL AUTO_INCREMENT,
+                `is_active` tinyint(1) NOT NULL DEFAULT 0,
+                `shared_drive_id` varchar(191) NOT NULL DEFAULT '',
+                `folder_id` varchar(191) NOT NULL DEFAULT '',
+                `folder_name` varchar(191) NOT NULL DEFAULT 'KB Wizard - Base de Conhecimento',
+                `export_doc` tinyint(1) NOT NULL DEFAULT 1,
+                `export_pdf` tinyint(1) NOT NULL DEFAULT 1,
+                `include_images` tinyint(1) NOT NULL DEFAULT 1,
+                `sa_filename` varchar(191) NOT NULL DEFAULT '',
+                `secret` varchar(64) NOT NULL DEFAULT '',
+                `last_error` text,
+                `date_mod` timestamp NULL DEFAULT NULL,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
+        }
+
+        if (!$DB->tableExists('glpi_plugin_kbwizard_drive_files')) {
+            $table = 'glpi_plugin_kbwizard_drive_files';
+            $DB->doQuery("CREATE TABLE IF NOT EXISTS `$table` (
+                `id` int unsigned NOT NULL AUTO_INCREMENT,
+                `knowbaseitems_id` int unsigned NOT NULL,
+                `doc_file_id` varchar(191) NOT NULL DEFAULT '',
+                `pdf_file_id` varchar(191) NOT NULL DEFAULT '',
+                `content_hash` varchar(64) NOT NULL DEFAULT '',
+                `status` varchar(20) NOT NULL DEFAULT 'pending',
+                `attempts` int NOT NULL DEFAULT 0,
+                `last_error` text,
+                `date_sync` timestamp NULL DEFAULT NULL,
+                `date_mod` timestamp NULL DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `knowbaseitems_id` (`knowbaseitems_id`),
+                KEY `status` (`status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
+        }
+    } catch (Throwable $e) {
+        if (class_exists('Toolbox')) {
+            try { Toolbox::logInFile('kbwizard', 'create_drive_tables erro: ' . $e->getMessage() . "\n"); } catch (Throwable $e2) {}
+        }
+    }
+
+    if (class_exists('CronTask') && defined('MINUTE_TIMESTAMP')) {
+        try {
+            CronTask::register(
+                'PluginKbwizardCron',
+                'sync',
+                MINUTE_TIMESTAMP,
+                [
+                    'comment'       => 'KB Wizard: sincronizar artigos com o Google Drive',
+                    'logs_lifetime' => 30,
+                ]
+            );
+        } catch (Throwable $e) {
+            if (class_exists('Toolbox')) {
+                try { Toolbox::logInFile('kbwizard', 'CronTask::register falhou: ' . $e->getMessage() . "\n"); } catch (Throwable $e2) {}
+            }
+        }
+    }
+}
+
 function plugin_kbwizard_install() {
     /** @var DBmysql $DB */
     global $DB;
@@ -67,6 +144,9 @@ function plugin_kbwizard_install() {
             KEY `users_id` (`users_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
     }
+
+    // Sincronização com Google Drive (tabelas + cron)
+    plugin_kbwizard_create_drive_tables();
 
     // Instalar direitos de perfil se a classe existir (opcional)
     if (class_exists('PluginKbwizardProfile')) {
@@ -154,6 +234,12 @@ function plugin_kbwizard_update($current_version) {
         }
     }
 
+    // Atualização para 1.3.0 - sincronização com Google Drive (Doc + PDF)
+    if (version_compare($current_version, '1.3.0', '<')) {
+        plugin_kbwizard_create_drive_tables();
+        Toolbox::logInFile('kbwizard', "KB Wizard atualizado para 1.3.0 - tabelas de sincronização do Drive criadas\n");
+    }
+
     // Atualizar direitos de perfil se existir
     if (class_exists('PluginKbwizardProfile')) {
         PluginKbwizardProfile::install();
@@ -182,6 +268,26 @@ function plugin_kbwizard_uninstall() {
 
     if ($DB->tableExists("glpi_plugin_kbwizard_progress")) {
         $DB->doQuery("DROP TABLE `glpi_plugin_kbwizard_progress`");
+    }
+
+    if ($DB->tableExists("glpi_plugin_kbwizard_drive_files")) {
+        $DB->doQuery("DROP TABLE `glpi_plugin_kbwizard_drive_files`");
+    }
+
+    if ($DB->tableExists("glpi_plugin_kbwizard_drive_config")) {
+        $DB->doQuery("DROP TABLE `glpi_plugin_kbwizard_drive_config`");
+    }
+
+    // Credencial da service account (fora do webroot)
+    try {
+        if (class_exists('PluginKbwizardDriveConfig')) {
+            $saPath = PluginKbwizardDriveConfig::serviceAccountPath();
+            if (is_file($saPath)) {
+                @unlink($saPath);
+            }
+        }
+    } catch (Throwable $e) {
+        // silencioso
     }
 
     // Limpar display preferences se houver
