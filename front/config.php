@@ -233,10 +233,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
         $_SESSION['kbwizard_drive_test'] = $res;
     } elseif (isset($_POST['sync_all'])) {
         $queued = PluginKbwizardDriveSync::markAllDirty();
+        $stats  = PluginKbwizardDriveSync::stats();
+        $kbTotal = PluginKbwizardDriveSync::countArticles();
         Session::addMessageAfterRedirect(
-            sprintf(__('%d artigo(s) enfileirado(s) para sincronização.', 'kbwizard'), $queued),
+            sprintf(
+                __('%d artigo(s) enfileirado(s). Artigos ativos na base: %d; fila: %d pendente(s), %d com erro.', 'kbwizard'),
+                $queued,
+                $kbTotal,
+                (int)($stats['pending'] ?? 0),
+                (int)($stats['error'] ?? 0)
+            ),
             true,
-            INFO
+            $queued > 0 ? INFO : WARNING
         );
     } elseif (isset($_POST['retry_errors'])) {
         $retried = PluginKbwizardDriveSync::retryErrors();

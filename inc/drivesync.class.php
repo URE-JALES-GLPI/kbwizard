@@ -370,52 +370,141 @@ class PluginKbwizardDriveSync
     public static function markAllDirty(): int
     {
         if (!self::tableExists()) {
+            self::reportQueueProblem(__('A tabela da fila não existe.', 'kbwizard'));
             return 0;
         }
+
         global $DB;
-        $kbTable = KnowbaseItem::getTable();
-        $now = date('Y-m-d H:i:s');
-
+        $ids = [];
         try {
-            $DB->doQuery(
-                "INSERT INTO `" . self::TABLE . "`
-                    (`knowbaseitems_id`, `doc_file_id`, `pdf_file_id`, `content_hash`, `status`, `attempts`, `last_error`, `date_sync`, `date_mod`)
-                 SELECT `id`, '', '', '', '" . self::STATUS_PENDING . "', 0, '', NULL, '$now'
-                 FROM `$kbTable` WHERE `is_deleted` = 0
-                 ON DUPLICATE KEY UPDATE `status` = '" . self::STATUS_PENDING . "', `attempts` = 0, `last_error` = '', `date_mod` = '$now'"
-            );
+            foreach ($DB->request([
+                'SELECT' => ['id'],
+                'FROM'   => KnowbaseItem::getTable(),
+                'WHERE'  => ['is_deleted' => 0],
+            ]) as $row) {
+                $ids[] = (int)$row['id'];
+            }
         } catch (Throwable $e) {
-            // Fallback para versões do GLPI sem doQuery(): enfileira linha a linha.
-            if (class_exists('PluginKbwizardToolbox')) {
-                PluginKbwizardToolbox::log('markAllDirty via SQL falhou, usando fallback: ' . $e->getMessage());
-            }
-            $enqueued = 0;
-            try {
-                foreach ($DB->request([
-                    'SELECT' => ['id'],
-                    'FROM'   => $kbTable,
-                    'WHERE'  => ['is_deleted' => 0],
-                ]) as $row) {
-                    self::markDirty((int)$row['id']);
-                    $enqueued++;
-                }
-            } catch (Throwable $e2) {
-                return 0;
-            }
-            return $enqueued;
-        }
-
-        try {
-            $count = 0;
-            foreach ($DB->request(['SELECT' => ['COUNT' => 'id'], 'FROM' => self::TABLE, 'WHERE' => ['status' => self::STATUS_PENDING]]) as $row) {
-                $count = (int)($row['COUNT'] ?? $row['count'] ?? 0);
-            }
-            return $count;
-        } catch (Throwable $e) {
+            self::reportQueueProblem(__('Não foi possível listar os artigos: ', 'kbwizard') . $e->getMessage());
             return 0;
         }
+
+        if ($ids === []) {
+            self::reportQueueProblem(__('A Base de Conhecimento não tem artigos ativos.', 'kbwizard'));
+            return 0;
+        }
+
+        $existing = [];
+        try {
+            foreach ($DB->request([
+                'SELECT' => ['id', 'knowbaseitems_id'],
+                'FROM'   => self::TABLE,
+            ]) as $row) {
+                $existing[(int)($row['knowbaseitems_id'] ?? 0)] = (int)($row['id'] ?? 0);
+            }
+        } catch (Throwable $e) {
+            $existing = [];
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $queued = 0;
+        $firstError = '';
+
+        foreach ($ids as $kbId) {
+            try {
+                if (isset($existing[$kbId]) && $existing[$kbId] > 0) {
+                    $DB->update(self::TABLE, [
+                        'status'     => self::STATUS_PENDING,
+                        'attempts'   => 0,
+                        'last_error' => '',
+                        'date_mod'   => $now,
+                    ], ['id' => $existing[$kbId]]);
+                } else {
+                    $DB->insert(self::TABLE, [
+                        'knowbaseitems_id' => $kbId,
+                        'doc_file_id'      => '',
+                        'pdf_file_id'      => '',
+                        'content_hash'     => '',
+                        'status'           => self::STATUS_PENDING,
+                        'attempts'         => 0,
+                        'last_error'       => '',
+                        'date_sync'        => null,
+                        'date_mod'         => $now,
+                    ]);
+                }
+                $queued++;
+            } catch (Throwable $e) {
+                if ($firstError === '') {
+                    $firstError = $e->getMessage();
+                }
+            }
+        }
+
+        if ($queued === 0) {
+            self::reportQueueProblem(__('Nenhum artigo pôde ser enfileirado: ', 'kbwizard') . $firstError);
+        } elseif ($firstError !== '') {
+            self::reportQueueProblem(sprintf(
+                __('%d artigo(s) enfileirado(s), mas houve falha: %s', 'kbwizard'),
+                $queued,
+                $firstError
+            ));
+        }
+
+        return $queued;
     }
 
+    /**
+     * Diagnóstico da fila: grava no log e na tela de configuração.
+     */
+    private static function reportQueueProblem(string $message): void
+    {
+        if (class_exists('PluginKbwizardToolbox')) {
+            PluginKbwizardToolbox::log('drive: fila: ' . $message);
+        }
+        PluginKbwizardDriveConfig::setLastError('Fila: ' . $message);
+    }
+
+    /**
+     * Total de artigos ativos (não excluídos) na Base de Conhecimento.
+     */
+    public static function countArticles(): int
+    {
+        global $DB;
+        if (!$DB) {
+            return 0;
+        }
+        try {
+            foreach ($DB->request([
+                'SELECT' => ['COUNT' => 'id'],
+                'FROM'   => KnowbaseItem::getTable(),
+                'WHERE'  => ['is_deleted' => 0],
+            ]) as $row) {
+                return self::scalarCount($row);
+            }
+        } catch (Throwable $e) {
+            return 0;
+        }
+        return 0;
+    }
+
+    /**
+     * Lê o COUNT sem depender do alias gerado pelo QueryBuilder.
+     * @param mixed $row
+     */
+    private static function scalarCount($row): int
+    {
+        if (!is_array($row)) {
+            return 0;
+        }
+        if (isset($row['COUNT'])) {
+            return (int)$row['COUNT'];
+        }
+        if (isset($row['count'])) {
+            return (int)$row['count'];
+        }
+        $values = array_values($row);
+        return (int)($values[0] ?? 0);
+    }
     /**
      * Recoloca erros na fila (botão "Reprocessar erros").
      */
@@ -432,7 +521,7 @@ class PluginKbwizardDriveSync
                 'FROM'   => self::TABLE,
                 'WHERE'  => ['status' => self::STATUS_ERROR],
             ]) as $row) {
-                $count = (int)($row['COUNT'] ?? $row['count'] ?? 0);
+                $count = self::scalarCount($row);
             }
             if ($count === 0) {
                 return 0;
@@ -467,7 +556,7 @@ class PluginKbwizardDriveSync
                     'FROM'   => self::TABLE,
                     'WHERE'  => ['status' => $status],
                 ]) as $row) {
-                    $count = (int)($row['COUNT'] ?? $row['count'] ?? 0);
+                    $count = self::scalarCount($row);
                 }
                 $stats[$status] = $count;
                 $stats['total'] += $count;
