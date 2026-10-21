@@ -1,6 +1,13 @@
 # Changelog
 
-## 1.1.1 - 2026-10-15 Hotfix fatal GLPI 12 — ATUAL
+## 1.2.0 - 2026-10-21 Exportação em PDF — ATUAL
+- **Feature**: novo botão **Exportar PDF** no banner do artigo (`templates/wizard_banner.html.php`, `public/js/kbwizard.js` no fallback AJAX) que abre `front/export.php?knowbaseitems_id=X` em nova aba
+- **Feature**: `front/export.php` renderiza o **HTML integral do artigo** (campo `answer`) em página limpa, com permissão `knowbase`, e dispara o diálogo de impressão — o PDF é salvo pelo navegador via **Salvar como PDF**
+- **Fix acentos**: página de exportação usa `header('Content-Type: text/html; charset=UTF-8')` + `<meta charset="utf-8">` e fontes do sistema; acentuação, imagens e formatação saem exatamente como no artigo
+- **Separação**: `inc/step.class.php:stripStepMarkers()` remove **somente** as linhas `---PASSO---` (aceita 2/3 traços, en/em dash e entidades HTML, dentro de `<p>/<div>/<h*>/<li>`) — nenhum outro conteúdo é alterado
+- **Docs**: `README.md` com seção de exportação para PDF/NotebookLM
+
+## 1.1.1 - 2026-10-15 Hotfix fatal GLPI 12
 - **Bug**: no GLPI 12 o core tipou `CommonGLPI::$rightname` como `string` e as 3 classes declaravam sem tipo → fatal de compilação em toda página (`Type of PluginKbwizardConfig::$rightname must be string (as in class CommonGLPI)`)
 - **Fix**: corpo das classes em trait (`inc/config.class.php`, `inc/step.class.php`, `inc/progress.class.php`) + declaração condicional de `$rightname` (`string` no GLPI 12, sem tipo no GLPI 11) — dual 11/12 preservado, valor `knowbase` intacto
 - **Compat**: `setup.php:13` bump `1.1.0 → 1.1.1`, `composer.json:6` alinhado

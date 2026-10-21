@@ -7,6 +7,7 @@ Transforma qualquer artigo da **Base de Conhecimento** em um **guia guiado passo
 - Adiciona botão **“Iniciar Passo a Passo”** no topo do artigo (quando ativado).
 - Exibe o conteúdo em **modal guiado**: 1 passo por vez, com **barra de progresso**, **lista lateral**, navegação **Anterior/Próximo**, atalhos de teclado (← → / ESC) e botão **Concluir**.
 - Salva **progresso por usuário** (continuar de onde parou).
+- **Exportar PDF**: gera o artigo inteiro em PDF (HTML original preservado, apenas as linhas `---PASSO---` são removidas) com acentuação correta — ideal para anexar em ferramentas como o NotebookLM.
 - Dois modos:
   - **Automático**: divide o campo `answer` do artigo automaticamente. Critérios: `<hr>` , `<h2>` , `<hr>` ou `<h2>` (padrão) ou marcador `---PASSO---`.
   - **Manual**: você cadastra passos com título + conteúdo rico (HTML) em ordem definida.
@@ -54,6 +55,14 @@ Transforma qualquer artigo da **Base de Conhecimento** em um **guia guiado passo
 - Ao iniciar, abre o **modal**: progresso, contador (ex: 2/5), lista lateral.
 - Navegue com botões ou clique nos passos laterais (se permitido).
 - Ao final, **Concluir** → feedback verde. Progresso é salvo; ao voltar verá **Continuar de onde parei**.
+
+### Exportar para PDF (NotebookLM)
+1. No banner azul do artigo, clique em **Exportar PDF**.
+2. Abre uma página limpa com **o artigo completo e sua formatação original** (títulos, listas, tabelas, imagens). As linhas `---PASSO---` são removidas automaticamente.
+3. Na janela de impressão, escolha **Salvar como PDF** e confirme.
+4. O nome do arquivo já vem como `<título do artigo> - Passo a Passo`. Acentos, imagens e texto selecionável são preservados, então o NotebookLM extrai o conteúdo corretamente.
+
+> O PDF é gerado pelo navegador (não pelo servidor): nenhuma biblioteca extra é necessária e a fidelidade visual é a mesma da tela.
 
 ## 🛠️ Dicas de autoria
 

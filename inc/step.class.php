@@ -215,6 +215,42 @@ trait PluginKbwizardStepBody {
         return $steps;
     }
 
+    /**
+     * Remove APENAS os marcadores de separação de passo (---PASSO---) do HTML
+     * do artigo, preservando toda a formatação original. Usado na exportação
+     * para PDF, onde o artigo inteiro deve sair como foi escrito.
+     *
+     * Aceita 2 ou 3 traços ASCII, en/em dash e as respectivas entidades HTML,
+     * com ou sem espaços, dentro ou fora de <p>/<div>/<h*>/<li>.
+     */
+    public static function stripStepMarkers(string $html): string {
+        if ($html === '') {
+            return '';
+        }
+
+        // Marcador: ---PASSO---, -- PASSO --, —PASSO—, &mdash;PASSO&mdash; etc.
+        // Aceita 2-3 hífens ou um travessão (—/–), que é o que o editor costuma
+        // gerar ao digitar três hífens.
+        $dash  = '(?:(?:-|&#45;){2,3}|[\x{2013}\x{2014}]|&(?:mdash|ndash);|&#(?:8211|8212);)';
+        $marker = $dash . '\s*PASSO\s*' . $dash;
+        $inner  = '(?:\s|&nbsp;|<br\s*/?>|</?(?:span|strong|b|em|i|u|font|small)\b[^>]*>)*';
+
+        // 1) Remove o bloco inteiro quando ele contém somente o marcador
+        $stripped = preg_replace(
+            '~<(p|div|h[1-6]|li)\b[^>]*>' . $inner . $marker . $inner . '</\1>~iu',
+            '',
+            $html
+        );
+        if ($stripped === null) {
+            $stripped = $html;
+        }
+
+        // 2) Remove marcadores restantes (texto solto ou dentro de outro bloco)
+        $stripped = preg_replace('~' . $marker . '~iu', '', $stripped);
+
+        return $stripped ?? $html;
+    }
+
     private static function extractTitle($html, $idx) {
         $html = (string)$html;
         if (preg_match('/<h[1-3][^>]*>(.*?)<\/h[1-3]>/i', $html, $m)) {

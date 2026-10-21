@@ -26,6 +26,14 @@ if (class_exists('PluginKbwizardToolbox')) {
 // WebDir para JS fallback (evita lógica duplicada no browser)
 $__kbwizardWebDir = class_exists('PluginKbwizardToolbox') ? PluginKbwizardToolbox::getWebDir() : (defined('PLUGIN_KBWIZARD_VERSION') ? plugin_kbwizard_get_webdir() : '');
 $__kbwizardRootDoc = class_exists('PluginKbwizardToolbox') ? PluginKbwizardToolbox::getRootDoc() : ($CFG_GLPI['root_doc'] ?? '');
+
+// Base do link de exportação (Toolbox resolve plugins/ e marketplace/)
+$__kbwizardExportBase = (string)$__kbwizardWebDir;
+if ($__kbwizardExportBase === '') {
+    $__kbwizardExportBase = function_exists('plugin_kbwizard_get_webdir')
+        ? (string)plugin_kbwizard_get_webdir()
+        : ((string)$__kbwizardRootDoc . '/plugins/kbwizard');
+}
 if ($cssInline) {
     // Banner fixo no topo, sem sticky (não acompanha scroll, não sobrepõe menus)
     // Pulse só se usuário não prefere reduced motion
@@ -72,6 +80,15 @@ if ($cssInline) {
       <button id="kbwizard-toggle-original" class="btn btn-outline-secondary" aria-label="<?= __('Rolar até o artigo completo', 'kbwizard') ?>">
         <i class="ti ti-article me-1" aria-hidden="true"></i><?= __('Ver artigo completo', 'kbwizard') ?>
       </button>
+      <a id="kbwizard-export-pdf"
+         class="btn btn-outline-primary"
+         href="<?= htmlspecialchars(rtrim($__kbwizardExportBase, '/') . '/front/export.php?knowbaseitems_id=' . (int)$kbId, ENT_QUOTES, 'UTF-8') ?>"
+         target="_blank"
+         rel="noopener"
+         aria-label="<?= __('Exportar artigo para PDF', 'kbwizard') ?>"
+         title="<?= __('Abre uma página de impressão; escolha “Salvar como PDF”', 'kbwizard') ?>">
+        <i class="ti ti-file-type-pdf me-1" aria-hidden="true"></i><?= __('Exportar PDF', 'kbwizard') ?>
+      </a>
     </div>
   </div>
   <?php if ($showProgress && $currentStep > 0): ?>
