@@ -47,6 +47,9 @@ $pdfAvailable = !empty($pdfStatus['available']);
 $pdfVersion = (string)($pdfStatus['version'] ?? '');
 $pdfTempDir = (string)($pdfStatus['temp_dir'] ?? '');
 
+$overview = is_array($driveOverview ?? null) ? $driveOverview : [];
+$kbUrl = ($CFG_GLPI['root_doc'] ?? '') . '/front/knowbaseitem.form.php?id=';
+
 $esc = static function ($value): string {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
 };
@@ -369,6 +372,9 @@ $esc = static function ($value): string {
                 <button type="submit" name="sync_all" value="1" class="btn btn-outline-secondary">
                     <i class="ti ti-refresh me-1"></i><?= $esc(__('Sincronizar todos os artigos', 'kbwizard')) ?>
                 </button>
+                <button type="submit" name="process_now" value="1" class="btn btn-outline-success">
+                    <i class="ti ti-player-play me-1"></i><?= $esc(__('Processar fila agora', 'kbwizard')) ?>
+                </button>
                 <button type="submit" name="retry_errors" value="1" class="btn btn-outline-warning">
                     <i class="ti ti-alert-triangle me-1"></i><?= $esc(__('Reprocessar erros', 'kbwizard')) ?>
                 </button>
@@ -404,6 +410,76 @@ $esc = static function ($value): string {
             <div class="alert alert-danger mt-3 mb-0">
                 <strong><?= $esc(__('Último erro:', 'kbwizard')) ?></strong>
                 <pre class="mb-0 mt-2" style="white-space:pre-wrap;max-height:220px;overflow:auto"><?= $esc($lastError) ?></pre>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($overview !== []): ?>
+            <h4 class="mt-4 mb-2"><?= $esc(__('Status por artigo', 'kbwizard')) ?></h4>
+            <div class="table-responsive" style="max-height:420px;overflow:auto">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead class="table-light" style="position:sticky;top:0;z-index:1">
+                        <tr>
+                            <th><?= $esc(__('Artigo', 'kbwizard')) ?></th>
+                            <th><?= $esc(__('Status', 'kbwizard')) ?></th>
+                            <th>Doc</th>
+                            <th>PDF</th>
+                            <th><?= $esc(__('Tentativas', 'kbwizard')) ?></th>
+                            <th><?= $esc(__('Última sincronização', 'kbwizard')) ?></th>
+                            <th><?= $esc(__('Erro', 'kbwizard')) ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($overview as $row):
+                        $status     = (string)($row['status'] ?? '');
+                        $kbId       = (int)($row['knowbaseitems_id'] ?? 0);
+                        $docFileId  = (string)($row['doc_file_id'] ?? '');
+                        $pdfFileId  = (string)($row['pdf_file_id'] ?? '');
+                        $rowError   = trim((string)($row['last_error'] ?? ''));
+                        $syncedAt   = (string)($row['date_sync'] ?? '');
+                        $attempts   = (int)($row['attempts'] ?? 0);
+                        if ($status === 'synced') {
+                            $label = __('sincronizado', 'kbwizard');
+                            $badge = 'bg-success';
+                        } elseif ($status === 'error') {
+                            $label = __('erro', 'kbwizard');
+                            $badge = 'bg-danger';
+                        } elseif ($status === 'skipped') {
+                            $label = __('ignorado', 'kbwizard');
+                            $badge = 'bg-secondary';
+                        } else {
+                            $label = __('pendente', 'kbwizard');
+                            $badge = 'bg-warning text-dark';
+                        }
+                    ?>
+                        <tr>
+                            <td>
+                                <a href="<?= $esc($kbUrl . $kbId) ?>">
+                                    <?= $esc((string)($row['kb_name'] ?? ('#' . $kbId))) ?>
+                                </a>
+                            </td>
+                            <td><span class="badge <?= $badge ?>"><?= $esc($label) ?></span></td>
+                            <td>
+                                <?php if ($docFileId !== ''): ?>
+                                    <a href="https://docs.google.com/document/d/<?= $esc(rawurlencode($docFileId)) ?>/edit" target="_blank" rel="noopener">Doc</a>
+                                <?php else: ?>—<?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if ($pdfFileId !== ''): ?>
+                                    <a href="https://drive.google.com/file/d/<?= $esc(rawurlencode($pdfFileId)) ?>/view" target="_blank" rel="noopener">PDF</a>
+                                <?php else: ?>—<?php endif; ?>
+                            </td>
+                            <td><?= $attempts ?></td>
+                            <td class="small"><?= $esc($syncedAt !== '' ? $syncedAt : '—') ?></td>
+                            <td class="small text-danger" style="max-width:280px">
+                                <?= $esc($rowError !== '' ? mb_substr($rowError, 0, 160) : '') ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <div class="form-hint mt-2">
+                <?= $esc(__('Mostrando os 200 registros mais recentes. Links abrem o arquivo no Google Drive.', 'kbwizard')) ?>
             </div>
         <?php endif; ?>
 

@@ -49,6 +49,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
         PluginKbwizardDriveConfig::resetCache();
     }
 
+    // Auto-reparo da coluna do motor de PDF: instalações que ainda estão com o
+    // hook.php antigo não recebem o ALTER em create_drive_tables().
+    try {
+        $driveCfgTable = 'glpi_plugin_kbwizard_drive_config';
+        if (isset($DB) && $DB->tableExists($driveCfgTable) && !$DB->fieldExists($driveCfgTable, 'pdf_engine')) {
+            $DB->doQuery("ALTER TABLE `$driveCfgTable` ADD `pdf_engine` varchar(20) NOT NULL DEFAULT 'google'");
+            PluginKbwizardDriveConfig::resetCache();
+        }
+    } catch (Throwable $e) {
+        if (class_exists('PluginKbwizardToolbox')) {
+            PluginKbwizardToolbox::log('drive config: falha ao criar pdf_engine: ' . $e->getMessage());
+        }
+    }
+
     $webDir = class_exists('PluginKbwizardToolbox')
         ? PluginKbwizardToolbox::getWebDir()
         : (($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard');
@@ -122,7 +136,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
         Session::addMessageAfterRedirect(__('Credencial removida.', 'kbwizard'), true, INFO);
     }
 
-    PluginKbwizardDriveConfig::save($input);
+    if (!PluginKbwizardDriveConfig::save($input)) {
+        Session::addMessageAfterRedirect(
+            __('Não foi possível salvar a configuração do Drive. Veja files/_log/kbwizard.log.', 'kbwizard'),
+            true,
+            ERROR
+        );
+    }
 
     if (isset($_POST['oauth_connect'])) {
         $cfgNow = PluginKbwizardDriveConfig::get();
@@ -246,6 +266,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
             true,
             $queued > 0 ? INFO : WARNING
         );
+    } elseif (isset($_POST['process_now'])) {
+        if (!PluginKbwizardDriveConfig::isConfigured()) {
+            Session::addMessageAfterRedirect(
+                __('Ative a sincronização e conecte a conta Google antes de processar a fila.', 'kbwizard'),
+                true,
+                ERROR
+            );
+        } else {
+            $res = PluginKbwizardDriveSync::processQueue(10);
+            Session::addMessageAfterRedirect(
+                sprintf(
+                    __('Fila processada: %d sincronizado(s), %d com erro, %d ignorado(s).', 'kbwizard'),
+                    (int)($res['synced'] ?? 0),
+                    (int)($res['failed'] ?? 0),
+                    (int)($res['skipped'] ?? 0)
+                ),
+                true,
+                !empty($res['failed']) ? WARNING : INFO
+            );
+            if (!empty($res['errors'])) {
+                $first = reset($res['errors']);
+                PluginKbwizardDriveConfig::setLastError((string)$first);
+            }
+        }
     } elseif (isset($_POST['retry_errors'])) {
         $retried = PluginKbwizardDriveSync::retryErrors();
         Session::addMessageAfterRedirect(
@@ -355,6 +399,7 @@ if (function_exists('plugin_kbwizard_create_drive_tables')) {
 
 $driveCfg     = PluginKbwizardDriveConfig::get();
 $driveStats   = PluginKbwizardDriveSync::stats();
+$driveOverview = PluginKbwizardDriveSync::overview(200);
 $driveAuthMode = in_array((string)($driveCfg['auth_mode'] ?? 'oauth'), ['oauth', 'device', 'service_account'], true)
     ? (string)($driveCfg['auth_mode'] ?? 'oauth')
     : 'oauth';

@@ -172,6 +172,24 @@ class PluginKbwizardDriveConfig
         }
         $values['date_mod'] = date('Y-m-d H:i:s');
 
+        // Colunas que ainda não existem (migração pendente) são descartadas para
+        // não derrubar o UPDATE inteiro e reverter todas as outras opções.
+        try {
+            foreach (array_keys($values) as $key) {
+                if (!$DB->fieldExists(self::TABLE, $key)) {
+                    if (class_exists('PluginKbwizardToolbox')) {
+                        PluginKbwizardToolbox::log('drive config: coluna ausente ignorada: ' . $key);
+                    }
+                    unset($values[$key]);
+                }
+            }
+        } catch (Throwable $e) {
+            // sem checagem disponível: tenta gravar como está
+        }
+        if (empty($values)) {
+            return false;
+        }
+
         $exists = false;
         try {
             foreach ($DB->request(['FROM' => self::TABLE, 'WHERE' => ['id' => 1], 'LIMIT' => 1]) as $row) {

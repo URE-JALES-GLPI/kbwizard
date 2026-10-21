@@ -2,6 +2,8 @@
 
 ## 1.4.0 - 2026-10-21 OAuth com conta Google (sem Workspace) — ATUAL
 - **Feature**: sincronização passa a funcionar com **conta Gmail comum** via **OAuth 2.0** (`inc/driveoauth.class.php` + `front/oauth2callback.php`), sem Google Workspace e sem Shared Drive
+- **UI**: botão **Processar fila agora** (executa 10 itens na hora) e tabela **Status por artigo** (nome, badge de status, links para Doc/PDF, tentativas, última sincronização e erro) — dá para conferir artigo por artigo se subiu
+- **Fix**: fila não filtra mais por `is_deleted` quando a instalação não tem essa coluna em `glpi_knowbaseitems` (evitava "Unknown column" e devolvia 0 silenciosamente); enfileiramento passou a usar a API do GLPI em vez de SQL cru, com diagnóstico no log e em **Último erro**
 - **Feature**: motor de PDF selecionável — **Google** (padrão, `files.export` a partir do Doc) ou **mPDF** (renderiza no servidor com `inc/pdfrender.class.php`, `composer require mpdf/mpdf`), com **fallback automático para o Google** se o mPDF não estiver instalado ou falhar; no modo mPDF as imagens entram mesmo com GLPI em IP interno
 - **Feature**: modo **device flow** (`PluginKbwizardDriveOAuth::deviceStart/devicePoll` + ações `device_start`/`device_poll`/`device_cancel`) para GLPI **interno (http/IP)**: o Google recusa redirect URI em http ou IP, e esse fluxo não usa redirect — o admin abre google.com/device, digita o código e clica em "Já autorizei"
 - **Escopo `drive.file`**: o plugin só enxerga os arquivos que ele mesmo criou — escopo não sensível, sem verificação do Google; os arquivos ficam no **Meu Drive** da conta conectada (15 GB)

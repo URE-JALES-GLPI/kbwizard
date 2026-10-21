@@ -269,6 +269,9 @@ class PluginKbwizardDriveSync
                 if ($useLocalPdf) {
                     try {
                         $pdfBytes = PluginKbwizardPdfRender::render($html, $name);
+                        if (class_exists('PluginKbwizardToolbox')) {
+                            PluginKbwizardToolbox::log("drive: kb=$kbId PDF gerado localmente com mPDF");
+                        }
                     } catch (Throwable $e) {
                         if (class_exists('PluginKbwizardToolbox')) {
                             PluginKbwizardToolbox::log(
@@ -590,6 +593,48 @@ class PluginKbwizardDriveSync
             return $stats;
         }
         return $stats;
+    }
+
+    /**
+     * Estado por artigo para a tela de configuração (mais recentes primeiro).
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function overview(int $limit = 200): array
+    {
+        if (!self::tableExists()) {
+            return [];
+        }
+        global $DB;
+
+        $names = [];
+        try {
+            foreach ($DB->request([
+                'SELECT' => ['id', 'name'],
+                'FROM'   => KnowbaseItem::getTable(),
+            ]) as $row) {
+                $names[(int)($row['id'] ?? 0)] = (string)($row['name'] ?? '');
+            }
+        } catch (Throwable $e) {
+            $names = [];
+        }
+
+        $rows = [];
+        try {
+            foreach ($DB->request([
+                'FROM'  => self::TABLE,
+                'ORDER' => ['date_mod DESC', 'id DESC'],
+                'LIMIT' => max(1, $limit),
+            ]) as $row) {
+                $kbId = (int)($row['knowbaseitems_id'] ?? 0);
+                $row['kb_name'] = $names[$kbId] ?? sprintf(__('Artigo #%d', 'kbwizard'), $kbId);
+                $rows[] = $row;
+            }
+        } catch (Throwable $e) {
+            return [];
+        }
+
+        return $rows;
     }
 
     /**

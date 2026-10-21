@@ -112,6 +112,8 @@ Nos dois modos de conta Google os arquivos ficam no **Meu Drive** da conta conec
 - O cron gera/atualiza o Google Doc, gera o PDF e grava o estado.
 - Excluir o artigo em definitivo move Doc/PDF para a lixeira do Drive.
 - Falhas aparecem na tela de configuração; **Reprocessar erros** reenfileira os itens.
+- **Processar fila agora** executa 10 itens na hora, sem esperar o cron.
+- **Status por artigo** lista os 200 registros mais recentes com badge de status, links diretos para o Doc e o PDF e a mensagem de erro de cada um.
 
 ### Motor do PDF
 Na tela de configuração, **Motor do PDF** escolhe quem renderiza o PDF:
