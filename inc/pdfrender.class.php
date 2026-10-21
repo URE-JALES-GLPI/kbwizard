@@ -20,6 +20,15 @@ class PluginKbwizardPdfRender
     /** @var bool|null Cache da checagem do autoload */
     private static ?bool $available = null;
 
+    /**
+     * Imagens já baixadas, no formato que o mPDF consome: nome => binário.
+     * O HTML referencia como <img src="var:kbimg1">, então nenhuma URL vai
+     * para o PDF — só o binário embutido no arquivo.
+     *
+     * @var array<string,string>
+     */
+    private static array $imageVars = [];
+
     public static function vendorAutoload(): string
     {
         return dirname(__DIR__) . '/vendor/autoload.php';
@@ -148,7 +157,12 @@ class PluginKbwizardPdfRender
                 . 'padding-top:2mm;text-align:right;">{PAGENO}/{nbpg}</div>';
             $mpdf->SetHTMLFooter($footer);
 
-            $mpdf->WriteHTML(self::css() . self::embedImages($html));
+            $payload = self::css() . self::embedImages($html);
+            if (self::$imageVars !== []) {
+                // mPDF injeta o binário direto: nada de buscar URL, nada de link.
+                $mpdf->imageVars = self::$imageVars;
+            }
+            $mpdf->WriteHTML($payload);
 
             $bytes = (string)$mpdf->Output('', 'S');
         } catch (Throwable $e) {
@@ -165,50 +179,62 @@ class PluginKbwizardPdfRender
     }
 
     /**
-     * Baixa as imagens no servidor e as embute como data URI.
+     * Baixa as imagens no servidor e as entrega ao mPDF como binário embutido.
      *
-     * O mPDF tenta buscar cada <img> por conta própria e falha sem avisar quando
-     * allow_url_fopen está desligado, quando o certificado é interno ou quando a
-     * URL exige sessão. Com data URI o binário já vai no HTML e a imagem entra
-     * no PDF mesmo com o GLPI em rede interna.
+     * Fluxo: <img src="http://host/..."> -> PHP baixa -> <img src="var:kbimg1">
+     * e o binário vai em $mpdf->imageVars. O PDF final não contém a URL nem
+     * depende de rede na hora de abrir; a imagem é o próprio arquivo.
      */
     private static function embedImages(string $html): string
     {
+        // Imagem dentro de link perde o <a>: no PDF não deve existir link para
+        // o documento, apenas a imagem.
+        $html = (string)preg_replace('#<a\b[^>]*>\s*(<img\b[^>]*>)\s*</a>#i', '$1', $html);
+
         if (stripos($html, '<img') === false) {
             return $html;
         }
 
+        self::$imageVars = [];
+
         $cache    = [];
         $embedded = 0;
         $failed   = 0;
+        // mPDF não lida com todo formato (webp, svg) — melhor pular do que
+        // derrubar o PDF inteiro.
+        $allowed = ['image/png', 'image/jpeg', 'image/gif', 'image/bmp'];
 
         $html = (string)preg_replace_callback(
             '#<img\b[^>]*>#i',
-            static function (array $m) use (&$cache, &$embedded, &$failed): string {
+            static function (array $m) use (&$cache, &$embedded, &$failed, $allowed): string {
                 $tag = $m[0];
                 if (!preg_match('#\bsrc\s*=\s*(["\'])(.*?)\1#i', $tag, $sm)) {
                     return $tag;
                 }
                 $src = html_entity_decode(trim($sm[2]), ENT_QUOTES, 'UTF-8');
-                if ($src === '' || stripos($src, 'data:') === 0) {
+                if ($src === '' || stripos($src, 'data:') === 0 || stripos($src, 'var:') === 0) {
                     return $tag;
                 }
 
                 if (!array_key_exists($src, $cache)) {
                     $cache[$src] = self::fetchImage($src);
                 }
-                if ($cache[$src] === null) {
+                $img = $cache[$src];
+                if ($img === null) {
                     $failed++;
                     return $tag;
                 }
+                if (!in_array($img['mime'], $allowed, true)) {
+                    self::log('imagem ignorada (formato não suportado pelo mPDF: ' . $img['mime'] . '): ' . $src);
+                    $failed++;
+                    return $tag;
+                }
+
+                $name = 'kbimg' . (count(self::$imageVars) + 1);
+                self::$imageVars[$name] = $img['data'];
                 $embedded++;
 
-                return (string)preg_replace(
-                    '#\bsrc\s*=\s*(["\'])(.*?)\1#i',
-                    'src="' . $cache[$src] . '"',
-                    $tag,
-                    1
-                );
+                return (string)preg_replace('#\bsrc\s*=\s*(["\'])(.*?)\1#i', 'src="var:' . $name . '"', $tag, 1);
             },
             $html
         );
@@ -221,9 +247,11 @@ class PluginKbwizardPdfRender
     }
 
     /**
-     * Baixa uma imagem e devolve a data URI, ou null se não for possível.
+     * Baixa uma imagem e devolve ['mime' => ..., 'data' => binário].
+     *
+     * @return array{mime:string,data:string}|null
      */
-    private static function fetchImage(string $url): ?string
+    private static function fetchImage(string $url): ?array
     {
         if (stripos($url, 'http://') !== 0 && stripos($url, 'https://') !== 0) {
             $base = '';
@@ -282,7 +310,7 @@ class PluginKbwizardPdfRender
             }
         }
 
-        return 'data:' . $type . ';base64,' . base64_encode($body);
+        return ['mime' => $type, 'data' => $body];
     }
 
     private static function log(string $message): void
