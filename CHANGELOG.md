@@ -2,11 +2,12 @@
 
 ## 1.4.0 - 2026-10-21 OAuth com conta Google (sem Workspace) — ATUAL
 - **Feature**: sincronização passa a funcionar com **conta Gmail comum** via **OAuth 2.0** (`inc/driveoauth.class.php` + `front/oauth2callback.php`), sem Google Workspace e sem Shared Drive
+- **Feature**: motor de PDF selecionável — **Google** (padrão, `files.export` a partir do Doc) ou **mPDF** (renderiza no servidor com `inc/pdfrender.class.php`, `composer require mpdf/mpdf`), com **fallback automático para o Google** se o mPDF não estiver instalado ou falhar; no modo mPDF as imagens entram mesmo com GLPI em IP interno
 - **Feature**: modo **device flow** (`PluginKbwizardDriveOAuth::deviceStart/devicePoll` + ações `device_start`/`device_poll`/`device_cancel`) para GLPI **interno (http/IP)**: o Google recusa redirect URI em http ou IP, e esse fluxo não usa redirect — o admin abre google.com/device, digita o código e clica em "Já autorizei"
 - **Escopo `drive.file`**: o plugin só enxerga os arquivos que ele mesmo criou — escopo não sensível, sem verificação do Google; os arquivos ficam no **Meu Drive** da conta conectada (15 GB)
 - **UI**: seletor de autenticação (**Conta Google com HTTPS**, **Conta Google por código** ou **Service account**), campos Client ID/secret, **Redirect URI** pronto para copiar, botões de conexão/desconexão e status da conta conectada
 - **Cliente Drive**: `PluginKbwizardDrive::fromConfig()` escolhe entre `refresh_token` (OAuth) e JWT da service account; buscas e criação de pasta funcionam tanto no Meu Drive quanto em Shared Drive; token em cache passa a ser identificado por credencial
-- **DB**: colunas `auth_mode`, `client_id`, `client_secret`, `refresh_token`, `google_email` em `glpi_plugin_kbwizard_drive_config`, com migração idempotente para instalações 1.3.x
+- **DB**: colunas `auth_mode`, `client_id`, `client_secret`, `refresh_token`, `google_email`, `pdf_engine` em `glpi_plugin_kbwizard_drive_config`, com migração idempotente para instalações 1.3.x
 - **Fix**: `rawRequest()` não entra mais em recursão ao obter o token; retry só em métodos idempotentes (evita Doc/PDF duplicado); renovação automática em 401
 - **Compat**: `setup.php`/`composer.json` em `1.4.0`; nenhuma dependência composer adicionada
 

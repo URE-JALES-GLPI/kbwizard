@@ -68,6 +68,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
         'folder_name'     => trim((string)($_POST['folder_name'] ?? '')),
         'export_doc'      => !empty($_POST['export_doc']),
         'export_pdf'      => !empty($_POST['export_pdf']),
+        'pdf_engine'      => in_array((string)($_POST['pdf_engine'] ?? 'google'), ['google', 'mpdf'], true)
+            ? (string)$_POST['pdf_engine']
+            : 'google',
         'include_images'  => !empty($_POST['include_images']),
         'sa_filename'     => (string)($current['sa_filename'] ?? ''),
         'client_id'       => in_array($authMode, ['oauth', 'device'], true)
@@ -350,6 +353,23 @@ $driveAuthMode = in_array((string)($driveCfg['auth_mode'] ?? 'oauth'), ['oauth',
 $driveDevice = $_SESSION['kbwizard_device'] ?? null;
 if (!is_array($driveDevice)) {
     $driveDevice = null;
+}
+$drivePdfEngine = in_array((string)($driveCfg['pdf_engine'] ?? 'google'), ['google', 'mpdf'], true)
+    ? (string)($driveCfg['pdf_engine'] ?? 'google')
+    : 'google';
+$drivePdfStatus = [
+    'available' => false,
+    'version'   => '',
+    'autoload'  => '',
+    'temp_dir'  => '',
+    'writable'  => false,
+];
+try {
+    if (class_exists('PluginKbwizardPdfRender')) {
+        $drivePdfStatus = PluginKbwizardPdfRender::status();
+    }
+} catch (Throwable $e) {
+    // sem mPDF: mantém o status "indisponível"
 }
 $driveGoogleEmail = (string)($driveCfg['google_email'] ?? '');
 $driveHasSecret   = trim((string)($driveCfg['client_secret'] ?? '')) !== '';

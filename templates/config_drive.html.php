@@ -38,6 +38,15 @@ $needsSetup = $isGoogle
     ? (trim((string)($cfg['client_id'] ?? '')) === '' || !$hasRefresh)
     : (!$hasSa || $sharedDriveId === '');
 
+$pdfEngine = (string)($drivePdfEngine ?? ($cfg['pdf_engine'] ?? 'google'));
+if (!in_array($pdfEngine, ['google', 'mpdf'], true)) {
+    $pdfEngine = 'google';
+}
+$pdfStatus = is_array($drivePdfStatus ?? null) ? $drivePdfStatus : [];
+$pdfAvailable = !empty($pdfStatus['available']);
+$pdfVersion = (string)($pdfStatus['version'] ?? '');
+$pdfTempDir = (string)($pdfStatus['temp_dir'] ?? '');
+
 $esc = static function ($value): string {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
 };
@@ -116,6 +125,29 @@ $esc = static function ($value): string {
                         <span class="form-check-label"><?= $esc(__('Gerar PDF', 'kbwizard')) ?></span>
                     </label>
                     <div class="form-hint"><?= $esc(__('O PDF é exportado pelo próprio Google a partir do Doc.', 'kbwizard')) ?></div>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label" for="kbwizard-pdf-engine"><?= $esc(__('Motor do PDF', 'kbwizard')) ?></label>
+                    <select class="form-select" id="kbwizard-pdf-engine" name="pdf_engine">
+                        <option value="google" <?= $pdfEngine === 'google' ? 'selected' : '' ?>>
+                            <?= $esc(__('Google (exporta do Doc)', 'kbwizard')) ?>
+                        </option>
+                        <option value="mpdf" <?= $pdfEngine === 'mpdf' ? 'selected' : '' ?>>
+                            <?= $esc(__('mPDF (gera no servidor)', 'kbwizard')) ?>
+                        </option>
+                    </select>
+                    <div class="form-hint">
+                        <?php if ($pdfEngine === 'mpdf' && !$pdfAvailable): ?>
+                            <span class="text-danger">
+                                <?= $esc(__('mPDF não instalado — o plugin vai usar o Google até você rodar "composer require mpdf/mpdf".', 'kbwizard')) ?>
+                            </span>
+                        <?php elseif ($pdfAvailable): ?>
+                            <?= $esc(sprintf(__('mPDF %s disponível. Use para incluir imagens mesmo com GLPI interno.', 'kbwizard'), $pdfVersion !== '' ? $pdfVersion : '')) ?>
+                        <?php else: ?>
+                            <?= $esc(__('Google: sem dependências. mPDF: gera no servidor e embute as imagens do artigo (requer composer).', 'kbwizard')) ?>
+                        <?php endif; ?>
+                    </div>
                 </div>
 
                 <div class="col-md-4">

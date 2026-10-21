@@ -109,9 +109,24 @@ Nos dois modos de conta Google os arquivos ficam no **Meu Drive** da conta conec
 
 ### Como funciona
 - Salvar um artigo (ou um passo manual) coloca o artigo na fila.
-- O cron gera/atualiza o Google Doc, exporta o PDF pelo próprio Google e grava o estado.
+- O cron gera/atualiza o Google Doc, gera o PDF e grava o estado.
 - Excluir o artigo em definitivo move Doc/PDF para a lixeira do Drive.
 - Falhas aparecem na tela de configuração; **Reprocessar erros** reenfileira os itens.
+
+### Motor do PDF
+Na tela de configuração, **Motor do PDF** escolhe quem renderiza o PDF:
+
+- **Google (padrão)** — `files.export` converte o Doc em PDF. Zero dependências. As imagens só entram se o Google conseguir baixar a URL do GLPI.
+- **mPDF (gera no servidor)** — o próprio PHP renderiza o HTML do artigo e sobe o binário para o Drive. **As imagens entram mesmo com GLPI em http/IP interno**, porque quem baixa é o servidor. Requer `composer require mpdf/mpdf` (extensões `mbstring` e `gd`).
+
+Para instalar o mPDF:
+
+```bash
+cd plugins/kbwizard          # ou marketplace/kbwizard
+composer require mpdf/mpdf
+```
+
+Se o `vendor/` não existir ou o mPDF falhar em um artigo, o plugin **cai automaticamente** no modo Google e registra o motivo em `files/_log/kbwizard.log` — nada quebra. O mPDF fica em `vendor/`, fora do banco e sem credenciais.
 
 > Imagens anexadas ao artigo são servidas por URL assinada de curta duração (`front/driveimage.php`), porque o Google as baixa sem sessão. O token é vinculado ao artigo e expira em 30 minutos.
 

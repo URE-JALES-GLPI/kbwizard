@@ -57,6 +57,7 @@ function plugin_kbwizard_create_drive_tables(): void {
                 `folder_name` varchar(191) NOT NULL DEFAULT 'KB Wizard - Base de Conhecimento',
                 `export_doc` tinyint(1) NOT NULL DEFAULT 1,
                 `export_pdf` tinyint(1) NOT NULL DEFAULT 1,
+                `pdf_engine` varchar(20) NOT NULL DEFAULT 'google',
                 `include_images` tinyint(1) NOT NULL DEFAULT 1,
                 `sa_filename` varchar(191) NOT NULL DEFAULT '',
                 `client_id` varchar(191) NOT NULL DEFAULT '',
@@ -78,6 +79,7 @@ function plugin_kbwizard_create_drive_tables(): void {
             'client_secret' => "varchar(191) NOT NULL DEFAULT ''",
             'refresh_token' => 'text',
             'google_email'  => "varchar(191) NOT NULL DEFAULT ''",
+            'pdf_engine'    => "varchar(20) NOT NULL DEFAULT 'google'",
         ];
         foreach ($newColumns as $field => $ddl) {
             if (!plugin_kbwizard_drive_column_exists($table, $field)) {

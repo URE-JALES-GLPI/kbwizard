@@ -243,18 +243,47 @@ class PluginKbwizardDriveSync
 
             $name = PluginKbwizardDriveExport::buildName($kb);
 
-            // O PDF é sempre renderizado a partir do Google Doc (fidelidade do
-            // próprio Google, sem TCPDF): se PDF está ligado, o Doc é gerado
-            // mesmo que a opção "manter Doc" esteja desmarcada.
-            $needDoc = !empty($cfg['export_doc']) || !empty($cfg['export_pdf']);
-            if ($needDoc) {
+            // PDF: por padrão o Google exporta a partir do Doc. Com o motor mPDF,
+            // o próprio servidor renderiza — assim as imagens entram mesmo com o
+            // GLPI em http/IP interno (o Google não alcançaria esse IP).
+            $useLocalPdf = (($cfg['pdf_engine'] ?? 'google') === 'mpdf')
+                && !empty($cfg['export_pdf'])
+                && class_exists('PluginKbwizardPdfRender')
+                && PluginKbwizardPdfRender::isAvailable();
+
+            $needDoc = !empty($cfg['export_doc']) || (!empty($cfg['export_pdf']) && !$useLocalPdf);
+
+            $html = '';
+            if ($needDoc || $useLocalPdf) {
                 $html = PluginKbwizardDriveExport::buildHtml($kb, true);
+            }
+
+            if ($needDoc) {
                 $doc = $client->upsertDoc($docId, $name, $html, $kbId);
                 $docId = $doc['id'];
             }
 
-            if (!empty($cfg['export_pdf']) && $docId !== '') {
-                $pdfBytes = $client->exportPdf($docId);
+            if (!empty($cfg['export_pdf'])) {
+                $pdfBytes = '';
+
+                if ($useLocalPdf) {
+                    try {
+                        $pdfBytes = PluginKbwizardPdfRender::render($html, $name);
+                    } catch (Throwable $e) {
+                        if (class_exists('PluginKbwizardToolbox')) {
+                            PluginKbwizardToolbox::log(
+                                "drive: mPDF falhou no artigo $kbId, usando Google: " . $e->getMessage()
+                            );
+                        }
+                        $pdfBytes = '';
+                    }
+                }
+
+                // Fallback automático (mPDF ausente/com erro) e modo padrão.
+                if ($pdfBytes === '' && $docId !== '') {
+                    $pdfBytes = $client->exportPdf($docId);
+                }
+
                 if ($pdfBytes !== '') {
                     $pdf = $client->upsertPdf($pdfId, $name . '.pdf', $pdfBytes, $kbId);
                     $pdfId = $pdf['id'];

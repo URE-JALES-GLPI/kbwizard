@@ -32,6 +32,7 @@ class PluginKbwizardDriveConfig
             'folder_name'    => 'KB Wizard - Base de Conhecimento',
             'export_doc'     => 1,
             'export_pdf'     => 1,
+            'pdf_engine'     => 'google',
             'include_images' => 1,
             'sa_filename'    => '',
             'client_id'      => '',
@@ -148,7 +149,7 @@ class PluginKbwizardDriveConfig
 
         $allowed = [
             'auth_mode', 'is_active', 'shared_drive_id', 'folder_id', 'folder_name',
-            'export_doc', 'export_pdf', 'include_images', 'sa_filename', 'last_error', 'secret',
+            'export_doc', 'export_pdf', 'pdf_engine', 'include_images', 'sa_filename', 'last_error', 'secret',
             'client_id', 'client_secret', 'refresh_token', 'google_email',
         ];
         $values = [];
@@ -158,6 +159,10 @@ class PluginKbwizardDriveConfig
             }
             if (in_array($key, ['is_active', 'export_doc', 'export_pdf', 'include_images'], true)) {
                 $values[$key] = (int)(!empty($input[$key]) ? 1 : 0);
+            } elseif ($key === 'pdf_engine') {
+                $values[$key] = in_array((string)$input[$key], ['google', 'mpdf'], true)
+                    ? (string)$input[$key]
+                    : 'google';
             } else {
                 $values[$key] = trim((string)$input[$key]);
             }
