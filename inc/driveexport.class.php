@@ -165,7 +165,39 @@ class PluginKbwizardDriveExport
             'exp'   => $exp,
             'sig'   => $sig,
         ]);
-        return self::baseUrl() . $url;
+        return self::absoluteUrl($url);
+    }
+
+    /**
+     * Converte um caminho web que já inclui o root_doc (ex: /glpi/plugins/kbwizard)
+     * em URL absoluta sem duplicar o root_doc.
+     *
+     * baseUrl() devolve "esquema://host/glpi" e webDir() devolve
+     * "/glpi/plugins/kbwizard" — concatenar os dois gera
+     * "http://host/glpi/glpi/plugins/kbwizard/..." (404, imagem quebrada).
+     */
+    public static function absoluteUrl(string $webPath): string
+    {
+        $base = self::baseUrl();
+
+        $root = '';
+        if (class_exists('PluginKbwizardToolbox')) {
+            try {
+                $root = rtrim(PluginKbwizardToolbox::getRootDoc(), '/');
+            } catch (Throwable $e) {
+                $root = '';
+            }
+        }
+        if ($root === '') {
+            global $CFG_GLPI;
+            $root = rtrim((string)($CFG_GLPI['root_doc'] ?? ''), '/');
+        }
+
+        if ($root !== '' && substr($base, -strlen($root)) === $root) {
+            return substr($base, 0, -strlen($root)) . $webPath;
+        }
+
+        return rtrim($base, '/') . '/' . ltrim($webPath, '/');
     }
 
     public static function verifyDocToken(int $docId, int $kbId, int $exp, string $sig): bool

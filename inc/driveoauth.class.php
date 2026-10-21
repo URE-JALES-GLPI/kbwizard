@@ -39,12 +39,8 @@ class PluginKbwizardDriveOAuth
             ? PluginKbwizardToolbox::getWebDir()
             : $rootDoc . '/plugins/kbwizard';
 
-        // baseUrl() já inclui o root_doc; remove do webDir para não duplicar.
-        if ($rootDoc !== '' && strpos($webDir, $rootDoc) === 0) {
-            $webDir = substr($webDir, strlen($rootDoc));
-        }
-
-        return PluginKbwizardDriveExport::baseUrl() . $webDir . '/front/oauth2callback.php';
+        // absoluteUrl() cuida de não duplicar o root_doc (baseUrl já o inclui).
+        return PluginKbwizardDriveExport::absoluteUrl($webDir . '/front/oauth2callback.php');
     }
 
     /**
