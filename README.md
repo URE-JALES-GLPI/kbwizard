@@ -69,26 +69,36 @@ Transforma qualquer artigo da **Base de Conhecimento** em um **guia guiado passo
 
 O NotebookLM só atualiza sozinho fontes que sejam **Google Docs nativos** — PDF importado continua sendo um snapshot. Por isso o plugin publica cada artigo **duas vezes** no Drive: um **Google Doc** (a fonte que o NotebookLM sincroniza) e um **PDF** (consulta/impressão). Os dois são atualizados no mesmo `fileId`, então o link nunca muda.
 
-Há dois modos de autenticação, escolhidos na própria tela de configuração:
+Há três modos de autenticação, escolhidos na própria tela de configuração:
 
-- **Conta Google (OAuth)** — recomendado. Funciona com **Gmail comum**, sem Workspace e sem Shared Drive. Os arquivos ficam no **Meu Drive** da conta conectada (15 GB). O escopo é `drive.file`: o plugin só enxerga o que ele mesmo criou.
+- **Conta Google — HTTPS** — para GLPI com URL pública `https://`. Fluxo OAuth padrão com redirect URI.
+- **Conta Google — código** — **recomendado para GLPI interno** (`http://` ou IP). Usa *device flow*: o Google recusa redirect URI em http/IP, e esse modo não usa redirect — você abre `google.com/device`, digita um código e autoriza. Também não exige acesso de fora para o GLPI.
 - **Service account** — para quem tem **Google Workspace** e um **Shared Drive**.
 
-### Pré-requisitos (modo OAuth)
+Nos dois modos de conta Google os arquivos ficam no **Meu Drive** da conta conectada (15 GB) e o escopo é `drive.file`: o plugin só enxerga o que ele mesmo criou.
+
+### Pré-requisitos (modos conta Google)
 1. Uma conta Google (pode ser criada só para o plugin).
-2. Projeto no Google Cloud com a **Drive API** habilitada e um **OAuth client** do tipo *Web application* (grátis, sem faturamento).
+2. Projeto no Google Cloud com a **Drive API** habilitada (grátis, sem faturamento).
 3. `url_base` do GLPI configurado (Configurar > Geral) — é a URL que o Google usa para baixar as imagens.
 
-### Configuração (modo OAuth)
-1. **Configurar > Plugins > KB Wizard** (ícone de engrenagem) → cartão **Sincronização com o Google Drive**.
-2. Escolha **Conta Google (Gmail)** e cole **Client ID** + **Client secret**.
-3. Copie o **Redirect URI** mostrado na tela e cadastre em **Google Cloud > Credentials > OAuth client > Authorized redirect URIs**.
-4. Clique **Conectar conta Google**, autorize (o aviso de app não verificado é esperado: *Avançado → Acessar*) e volte.
-5. Clique **Testar conexão** → o plugin cria a pasta `KB Wizard - Base de Conhecimento` no Meu Drive.
-6. Marque **Ativar sincronização**, **Salvar** e use **Sincronizar todos os artigos**.
-7. Confirme em **Configurar > Ações automáticas** que `PluginKbwizardCron::sync` está **aguardando execução** (roda a cada minuto, 5 artigos por execução).
+### Configuração — Conta Google por código (GLPI interno)
+1. **Google Cloud > Credentials > Create credentials > OAuth client ID** → tipo **"TVs and Limited Input devices"** (não é Web application).
+2. Copie **Client ID** e **Client secret**.
+3. Em **OAuth consent screen**, publique o app (**Em produção**).
+4. No GLPI: **Configurar > Plugins > KB Wizard** → **Autenticação** → **Conta Google — código**.
+5. Cole Client ID + secret, **Salvar** e clique em **Gerar código de conexão**.
+6. Abra `https://www.google.com/device` em qualquer navegador, entre com a conta do plugin e digite o código exibido.
+7. Volte à tela e clique em **Já autorizei**. O plugin salva o `refresh_token` e mostra o e-mail conectado.
+8. **Testar conexão** → **Salvar**.
 
-> No Google Cloud, publique o app como **"Em produção"** (OAuth consent screen). Em "Testing", o `refresh_token` expira em **7 dias** e a sincronização para.
+### Configuração — Conta Google com HTTPS
+1. **Google Cloud > Credentials > OAuth client ID** → tipo **Web application** + redirect URI exibido na tela do plugin (precisa ser `https://`; o Google só aceita `http://localhost`).
+2. Cole **Client ID** + **Client secret** na tela do plugin.
+3. **Conectar conta Google** → autorize (aviso de app não verificado é esperado: *Avançado → Acessar*).
+4. **Testar conexão** → **Salvar**.
+
+> Publish o app como **"Em produção"** no OAuth consent screen. Em "Testing", o `refresh_token` expira em **7 dias** e a sincronização para.
 
 ### Alternativa: service account + Shared Drive (Workspace)
 1. Google Cloud → **Drive API** → criar **service account** → chave **JSON**.

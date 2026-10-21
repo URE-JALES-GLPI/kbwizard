@@ -22,16 +22,19 @@ $hasSa = !empty($driveHasSa);
 $lastError = trim((string)($cfg['last_error'] ?? ''));
 
 $authMode = (string)($driveAuthMode ?? ($cfg['auth_mode'] ?? 'oauth'));
-if (!in_array($authMode, ['oauth', 'service_account'], true)) {
+if (!in_array($authMode, ['oauth', 'device', 'service_account'], true)) {
     $authMode = 'oauth';
 }
 $isOAuth = $authMode === 'oauth';
+$isDevice = $authMode === 'device';
+$isGoogle = $isOAuth || $isDevice;
+$device = is_array($driveDevice ?? null) ? $driveDevice : null;
 $googleEmail = trim((string)($driveGoogleEmail ?? ($cfg['google_email'] ?? '')));
 $hasSecret = !empty($driveHasSecret);
 $hasRefresh = trim((string)($cfg['refresh_token'] ?? '')) !== '';
 $redirectUri = (string)($driveRedirectUri ?? '');
 $sharedDriveId = trim((string)($cfg['shared_drive_id'] ?? ''));
-$needsSetup = $isOAuth
+$needsSetup = $isGoogle
     ? (trim((string)($cfg['client_id'] ?? '')) === '' || !$hasRefresh)
     : (!$hasSa || $sharedDriveId === '');
 
@@ -76,8 +79,8 @@ $esc = static function ($value): string {
 
         <?php if ($needsSetup): ?>
             <div class="alert alert-warning">
-                <?php if ($isOAuth): ?>
-                    <?= $esc(__('Conecte a conta Google (Client ID/secret + botão "Conectar conta Google"). Sem isso a sincronização não roda.', 'kbwizard')) ?>
+                <?php if ($isGoogle): ?>
+                    <?= $esc(__('Conecte a conta Google (Client ID/secret + botão de conexão). Sem isso a sincronização não roda.', 'kbwizard')) ?>
                 <?php else: ?>
                     <?= $esc(__('Falta configurar a service account e/ou o Shared Drive. Sem isso a sincronização não roda.', 'kbwizard')) ?>
                 <?php endif; ?>
@@ -131,22 +134,28 @@ $esc = static function ($value): string {
                         <label class="form-check">
                             <input class="form-check-input" type="radio" name="auth_mode" value="oauth" <?= $isOAuth ? 'checked' : '' ?>>
                             <span class="form-check-label">
-                                <?= $esc(__('Conta Google (Gmail) — recomendado', 'kbwizard')) ?>
+                                <?= $esc(__('Conta Google — GLPI com HTTPS', 'kbwizard')) ?>
                             </span>
                         </label>
                         <label class="form-check">
-                            <input class="form-check-input" type="radio" name="auth_mode" value="service_account" <?= !$isOAuth ? 'checked' : '' ?>>
+                            <input class="form-check-input" type="radio" name="auth_mode" value="device" <?= $isDevice ? 'checked' : '' ?>>
+                            <span class="form-check-label">
+                                <?= $esc(__('Conta Google — código (GLPI interno, sem HTTPS)', 'kbwizard')) ?>
+                            </span>
+                        </label>
+                        <label class="form-check">
+                            <input class="form-check-input" type="radio" name="auth_mode" value="service_account" <?= !$isGoogle ? 'checked' : '' ?>>
                             <span class="form-check-label">
                                 <?= $esc(__('Service account (Google Workspace + Shared Drive)', 'kbwizard')) ?>
                             </span>
                         </label>
                     </div>
                     <div class="form-hint">
-                        <?= $esc(__('A conta Google usa escopo drive.file: o plugin só enxerga os arquivos que ele mesmo cria. A service account exige Workspace e um Shared Drive.', 'kbwizard')) ?>
+                        <?= $esc(__('A conta Google usa escopo drive.file: o plugin só enxerga os arquivos que ele mesmo cria. Use "código" quando o GLPI não tiver URL pública HTTPS — o Google recusa redirect em http ou IP.', 'kbwizard')) ?>
                     </div>
                 </div>
 
-                <?php if ($isOAuth): ?>
+                <?php if ($isGoogle): ?>
                     <div class="col-12">
                         <hr>
                         <div class="d-flex flex-wrap justify-content-between align-items-center mb-2">
@@ -179,12 +188,13 @@ $esc = static function ($value): string {
                                 <div class="form-hint"><?= $esc(__('Deixe em branco para manter o segredo atual.', 'kbwizard')) ?></div>
                             </div>
 
+                            <?php if ($isOAuth): ?>
                             <div class="col-12">
                                 <label class="form-label" for="kbwizard-redirect-uri"><?= $esc(__('Redirect URI (cadastre no Google Cloud)', 'kbwizard')) ?></label>
                                 <input type="text" class="form-control" id="kbwizard-redirect-uri"
                                        value="<?= $esc($redirectUri) ?>" readonly onclick="this.select();">
                                 <div class="form-hint">
-                                    <?= $esc(__('Em Google Cloud > Credentials > OAuth client, adicione exatamente esta URL em "Authorized redirect URIs".', 'kbwizard')) ?>
+                                    <?= $esc(__('Em Google Cloud > Credentials > OAuth client, adicione exatamente esta URL em "Authorized redirect URIs". O Google exige https (só aceita http em localhost).', 'kbwizard')) ?>
                                 </div>
                             </div>
 
@@ -204,6 +214,53 @@ $esc = static function ($value): string {
                                     <?= $esc(__('Ao conectar, o Google mostra um aviso de app não verificado. É esperado: clique em "Avançado" e depois em "Acessar".', 'kbwizard')) ?>
                                 </div>
                             </div>
+                            <?php else: ?>
+                            <div class="col-12">
+                                <?php if (is_array($device)): ?>
+                                    <div class="alert alert-info">
+                                        <p class="mb-2">
+                                            <?= $esc(__('Abra a página abaixo em qualquer navegador, escolha a conta Google do plugin e digite o código:', 'kbwizard')) ?>
+                                        </p>
+                                        <p class="mb-2">
+                                            <a href="<?= $esc($device['url'] ?? 'https://www.google.com/device') ?>" target="_blank" rel="noopener">
+                                                <?= $esc($device['url'] ?? 'https://www.google.com/device') ?>
+                                            </a>
+                                        </p>
+                                        <div class="fs-3 fw-bold mb-3" style="letter-spacing:.25em;font-family:monospace">
+                                            <?= $esc($device['user_code'] ?? '') ?>
+                                        </div>
+                                        <p class="small mb-2">
+                                            <?= $esc(sprintf(
+                                                __('O código expira às %s. Depois de autorizar, clique em "Já autorizei".', 'kbwizard'),
+                                                date('H:i', (int)($device['expires_at'] ?? time()))
+                                            )) ?>
+                                        </p>
+                                        <div class="d-flex flex-wrap gap-2">
+                                            <button type="submit" name="device_poll" value="1" class="btn btn-success">
+                                                <i class="ti ti-circle-check me-1"></i><?= $esc(__('Já autorizei', 'kbwizard')) ?>
+                                            </button>
+                                            <button type="submit" name="device_cancel" value="1" class="btn btn-outline-secondary">
+                                                <?= $esc(__('Descartar código', 'kbwizard')) ?>
+                                            </button>
+                                        </div>
+                                    </div>
+                                <?php else: ?>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <button type="submit" name="device_start" value="1" class="btn btn-outline-danger">
+                                            <i class="ti ti-brand-google me-1"></i><?= $esc(__('Gerar código de conexão', 'kbwizard')) ?>
+                                        </button>
+                                        <?php if ($hasRefresh): ?>
+                                            <button type="submit" name="oauth_disconnect" value="1" class="btn btn-outline-secondary">
+                                                <i class="ti ti-plug-off me-1"></i><?= $esc(__('Desconectar', 'kbwizard')) ?>
+                                            </button>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endif; ?>
+                                <div class="form-hint">
+                                    <?= $esc(__('Use esta opção quando o GLPI roda em http/IP interno: o Google recusa redirect URI em http ou IP, mas o fluxo por código não usa redirect.', 'kbwizard')) ?>
+                                </div>
+                            </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 <?php else: ?>
@@ -228,7 +285,7 @@ $esc = static function ($value): string {
                            value="<?= $esc($cfg['folder_name'] ?? '') ?>"
                            placeholder="KB Wizard - Base de Conhecimento">
                     <div class="form-hint">
-                        <?= $esc($isOAuth
+                        <?= $esc($isGoogle
                             ? __('Criada automaticamente no Meu Drive. Deixe o plugin criar — o escopo drive.file não enxerga pastas criadas manualmente.', 'kbwizard')
                             : __('Criada automaticamente dentro do Shared Drive se não existir.', 'kbwizard')) ?>
                     </div>
@@ -241,7 +298,7 @@ $esc = static function ($value): string {
                     <div class="form-hint"><?= $esc(__('Preenchido automaticamente após "Testar conexão". Use só se quiser apontar para uma pasta existente.', 'kbwizard')) ?></div>
                 </div>
 
-                <?php if (!$isOAuth): ?>
+                <?php if (!$isGoogle): ?>
                     <div class="col-12">
                         <hr>
                         <h4 class="mb-2"><?= $esc(__('Credencial (service account)', 'kbwizard')) ?></h4>

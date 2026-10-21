@@ -250,7 +250,7 @@ class PluginKbwizardDriveConfig
             return false;
         }
 
-        if (($cfg['auth_mode'] ?? 'oauth') === 'oauth') {
+        if (in_array((string)($cfg['auth_mode'] ?? 'oauth'), ['oauth', 'device'], true)) {
             return trim((string)($cfg['client_id'] ?? '')) !== ''
                 && trim((string)($cfg['client_secret'] ?? '')) !== ''
                 && trim((string)($cfg['refresh_token'] ?? '')) !== '';

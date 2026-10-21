@@ -185,7 +185,7 @@ class PluginKbwizardDriveSync
             return ['status' => 'disabled', 'message' => __('Sincronização desativada.', 'kbwizard')];
         }
         if (PluginKbwizardDrive::fromConfig() === null) {
-            $msg = (($cfg['auth_mode'] ?? 'oauth') === 'oauth')
+            $msg = (($cfg['auth_mode'] ?? 'oauth') !== 'service_account')
                 ? __('Conta Google não conectada.', 'kbwizard')
                 : __('Service account não configurada.', 'kbwizard');
             self::registerFailure($kbId, $msg);

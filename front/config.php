@@ -57,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
     $current = PluginKbwizardDriveConfig::get();
     $authMode = (string)($_POST['auth_mode'] ?? 'oauth');
     $input = [
-        'auth_mode'       => in_array($authMode, ['oauth', 'service_account'], true) ? $authMode : 'oauth',
+        'auth_mode'       => in_array($authMode, ['oauth', 'device', 'service_account'], true) ? $authMode : 'oauth',
         'is_active'       => !empty($_POST['is_active']),
         // Campos só existem no formulário do modo correspondente: preserva o
         // valor antigo quando o outro bloco não foi renderizado.
@@ -70,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
         'export_pdf'      => !empty($_POST['export_pdf']),
         'include_images'  => !empty($_POST['include_images']),
         'sa_filename'     => (string)($current['sa_filename'] ?? ''),
-        'client_id'       => $authMode === 'oauth'
+        'client_id'       => in_array($authMode, ['oauth', 'device'], true)
             ? trim((string)($_POST['client_id'] ?? ''))
             : (string)($current['client_id'] ?? ''),
     ];
@@ -141,7 +141,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
         }
     } elseif (isset($_POST['oauth_disconnect'])) {
         PluginKbwizardDriveConfig::save(['refresh_token' => '', 'google_email' => '']);
+        unset($_SESSION['kbwizard_device']);
         Session::addMessageAfterRedirect(__('Conta Google desconectada.', 'kbwizard'), true, INFO);
+    } elseif (isset($_POST['device_start'])) {
+        // Device flow: não usa redirect URI, então funciona em GLPI interno (http/IP).
+        $cfgNow = PluginKbwizardDriveConfig::get();
+        if (
+            trim((string)($cfgNow['client_id'] ?? '')) === ''
+            || trim((string)($cfgNow['client_secret'] ?? '')) === ''
+        ) {
+            Session::addMessageAfterRedirect(
+                __('Informe o Client ID e o Client secret antes de gerar o código.', 'kbwizard'),
+                true,
+                ERROR
+            );
+        } else {
+            try {
+                $dev = PluginKbwizardDriveOAuth::deviceStart();
+                $_SESSION['kbwizard_device'] = [
+                    'device_code' => $dev['device_code'],
+                    'user_code'   => $dev['user_code'],
+                    'url'         => $dev['url'],
+                    'expires_at'  => time() + (int)$dev['expires_in'],
+                    'interval'    => (int)$dev['interval'],
+                ];
+                Session::addMessageAfterRedirect(
+                    __('Código gerado. Abra a URL, digite o código e clique em "Já autorizei".', 'kbwizard'),
+                    true,
+                    INFO
+                );
+            } catch (Throwable $e) {
+                Session::addMessageAfterRedirect($e->getMessage(), true, ERROR);
+            }
+        }
+    } elseif (isset($_POST['device_poll'])) {
+        $dev = $_SESSION['kbwizard_device'] ?? null;
+        if (!is_array($dev) || empty($dev['device_code'])) {
+            Session::addMessageAfterRedirect(__('Nenhum código pendente. Gere um novo.', 'kbwizard'), true, ERROR);
+        } elseif (time() > (int)($dev['expires_at'] ?? 0)) {
+            unset($_SESSION['kbwizard_device']);
+            Session::addMessageAfterRedirect(__('O código expirou. Gere um novo.', 'kbwizard'), true, ERROR);
+        } else {
+            try {
+                $res = PluginKbwizardDriveOAuth::devicePoll((string)$dev['device_code']);
+                if (!empty($res['pending'])) {
+                    Session::addMessageAfterRedirect(
+                        __('Ainda não autorizado. Confirme na conta Google e clique em "Já autorizei" de novo.', 'kbwizard'),
+                        true,
+                        WARNING
+                    );
+                } else {
+                    $tokens = is_array($res['tokens'] ?? null) ? $res['tokens'] : [];
+                    $email = '';
+                    if (!empty($tokens['access_token'])) {
+                        $email = PluginKbwizardDriveOAuth::fetchEmail((string)$tokens['access_token']);
+                    }
+                    PluginKbwizardDriveConfig::save([
+                        'refresh_token' => (string)($tokens['refresh_token'] ?? ''),
+                        'google_email'  => $email,
+                    ]);
+                    unset($_SESSION['kbwizard_device']);
+                    Session::addMessageAfterRedirect(
+                        sprintf(
+                            __('Conta Google conectada: %s', 'kbwizard'),
+                            $email !== '' ? $email : __('conta autorizada', 'kbwizard')
+                        ),
+                        true,
+                        INFO
+                    );
+                }
+            } catch (Throwable $e) {
+                Session::addMessageAfterRedirect($e->getMessage(), true, ERROR);
+            }
+        }
+    } elseif (isset($_POST['device_cancel'])) {
+        unset($_SESSION['kbwizard_device']);
+        Session::addMessageAfterRedirect(__('Código descartado.', 'kbwizard'), true, INFO);
     } elseif (isset($_POST['test_drive'])) {
         $client = PluginKbwizardDrive::fromConfig();
         if ($client === null) {
@@ -269,9 +344,13 @@ if (function_exists('plugin_kbwizard_create_drive_tables')) {
 
 $driveCfg     = PluginKbwizardDriveConfig::get();
 $driveStats   = PluginKbwizardDriveSync::stats();
-$driveAuthMode = in_array((string)($driveCfg['auth_mode'] ?? 'oauth'), ['oauth', 'service_account'], true)
+$driveAuthMode = in_array((string)($driveCfg['auth_mode'] ?? 'oauth'), ['oauth', 'device', 'service_account'], true)
     ? (string)($driveCfg['auth_mode'] ?? 'oauth')
     : 'oauth';
+$driveDevice = $_SESSION['kbwizard_device'] ?? null;
+if (!is_array($driveDevice)) {
+    $driveDevice = null;
+}
 $driveGoogleEmail = (string)($driveCfg['google_email'] ?? '');
 $driveHasSecret   = trim((string)($driveCfg['client_secret'] ?? '')) !== '';
 $driveRedirectUri = '';

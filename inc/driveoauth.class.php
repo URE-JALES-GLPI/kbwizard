@@ -20,6 +20,7 @@ class PluginKbwizardDriveOAuth
     public const AUTH_URL     = 'https://accounts.google.com/o/oauth2/v2/auth';
     public const TOKEN_URL    = 'https://oauth2.googleapis.com/token';
     public const USERINFO_URL = 'https://openidconnect.googleapis.com/v1/userinfo';
+    public const DEVICE_URL   = 'https://oauth2.googleapis.com/device/code';
 
     /** drive.file = não sensível (sem verificação) e limitado aos arquivos do app. */
     public const SCOPE = 'openid email https://www.googleapis.com/auth/drive.file';
@@ -126,10 +127,94 @@ class PluginKbwizardDriveOAuth
     }
 
     /**
+     * Inicia o device flow ("TVs and limited input devices").
+     * Não usa redirect URI: funciona em GLPI interno, sem HTTPS público.
+     * @return array{device_code:string,user_code:string,url:string,expires_in:int,interval:int}
+     */
+    public static function deviceStart(): array
+    {
+        $cfg = PluginKbwizardDriveConfig::get();
+        $clientId = trim((string)($cfg['client_id'] ?? ''));
+        if ($clientId === '') {
+            throw new RuntimeException(__('Informe o Client ID antes de gerar o código.', 'kbwizard'));
+        }
+
+        $json = self::postForm(self::DEVICE_URL, [
+            'client_id' => $clientId,
+            'scope'     => self::SCOPE,
+        ]);
+
+        $deviceCode = (string)($json['device_code'] ?? '');
+        $userCode   = (string)($json['user_code'] ?? '');
+        if ($deviceCode === '' || $userCode === '') {
+            throw new RuntimeException(__('O Google não retornou o código do dispositivo.', 'kbwizard'));
+        }
+
+        return [
+            'device_code' => $deviceCode,
+            'user_code'   => $userCode,
+            'url'         => (string)($json['verification_url'] ?? $json['verification_uri'] ?? 'https://www.google.com/device'),
+            'expires_in'  => (int)($json['expires_in'] ?? 1800),
+            'interval'    => max(5, (int)($json['interval'] ?? 5)),
+        ];
+    }
+
+    /**
+     * Consulta o estado do device flow. Retorna os tokens quando autorizado.
+     * @return array{pending:bool,tokens?:array<string,mixed>}
+     */
+    public static function devicePoll(string $deviceCode): array
+    {
+        $cfg = PluginKbwizardDriveConfig::get();
+        [$status, $json] = self::postFormRaw(self::TOKEN_URL, [
+            'client_id'     => trim((string)($cfg['client_id'] ?? '')),
+            'client_secret' => trim((string)($cfg['client_secret'] ?? '')),
+            'device_code'   => $deviceCode,
+            'grant_type'    => 'urn:ietf:params:oauth:grant-type:device_code',
+        ]);
+
+        if ($status >= 200 && $status < 300 && !empty($json['refresh_token'])) {
+            return ['pending' => false, 'tokens' => $json];
+        }
+
+        $error = (string)($json['error'] ?? '');
+        if ($error === 'authorization_pending' || $error === 'slow_down') {
+            return ['pending' => true];
+        }
+
+        $message = (string)($json['error_description'] ?? $error);
+        if ($error === 'access_denied') {
+            $message = __('Acesso negado na conta Google.', 'kbwizard');
+        } elseif ($error === 'expired_token') {
+            $message = __('O código expirou. Gere um novo.', 'kbwizard');
+        } elseif ($message === '') {
+            $message = sprintf(__('Erro HTTP %d ao falar com o Google.', 'kbwizard'), $status);
+        }
+        throw new RuntimeException($message, $status);
+    }
+
+    /**
      * @param array<string,string> $params
      * @return array<string,mixed>
      */
     private static function postForm(string $url, array $params): array
+    {
+        [$status, $json] = self::postFormRaw($url, $params);
+        if ($status < 200 || $status >= 300) {
+            $message = (string)($json['error_description'] ?? $json['error'] ?? '');
+            if ($message === '') {
+                $message = sprintf(__('Erro HTTP %d ao falar com o Google.', 'kbwizard'), $status);
+            }
+            throw new RuntimeException($message, $status);
+        }
+        return $json;
+    }
+
+    /**
+     * @param array<string,string> $params
+     * @return array{0:int,1:array<string,mixed>}
+     */
+    private static function postFormRaw(string $url, array $params): array
     {
         $ch = curl_init($url);
         if ($ch === false) {
@@ -153,7 +238,11 @@ class PluginKbwizardDriveOAuth
         $curlError = curl_error($ch);
         curl_close($ch);
 
-        return self::decodeResponse($body, $status, $curlError);
+        if ($body === false) {
+            throw new RuntimeException(sprintf(__('Falha de rede ao falar com o Google: %s', 'kbwizard'), $curlError));
+        }
+        $json = json_decode((string)$body, true);
+        return [$status, is_array($json) ? $json : []];
     }
 
     /**

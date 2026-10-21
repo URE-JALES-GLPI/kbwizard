@@ -50,7 +50,7 @@ class PluginKbwizardDrive
     {
         $cfg = PluginKbwizardDriveConfig::get();
 
-        if (($cfg['auth_mode'] ?? 'oauth') === 'oauth') {
+        if (in_array((string)($cfg['auth_mode'] ?? 'oauth'), ['oauth', 'device'], true)) {
             $clientId     = trim((string)($cfg['client_id'] ?? ''));
             $clientSecret = trim((string)($cfg['client_secret'] ?? ''));
             $refreshToken = trim((string)($cfg['refresh_token'] ?? ''));
