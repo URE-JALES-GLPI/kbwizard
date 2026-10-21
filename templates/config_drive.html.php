@@ -145,8 +145,12 @@ $esc = static function ($value): string {
                             <span class="text-danger">
                                 <?= $esc(__('mPDF não instalado — o plugin vai usar o Google até você rodar "composer require mpdf/mpdf".', 'kbwizard')) ?>
                             </span>
+                        <?php elseif ($pdfAvailable && empty($pdfStatus['gd'])): ?>
+                            <span class="text-danger">
+                                <?= $esc(__('mPDF instalado, mas a extensão GD está desativada: imagens não entram no PDF. Habilite extension=gd no php.ini.', 'kbwizard')) ?>
+                            </span>
                         <?php elseif ($pdfAvailable): ?>
-                            <?= $esc(sprintf(__('mPDF %s disponível. Use para incluir imagens mesmo com GLPI interno.', 'kbwizard'), $pdfVersion !== '' ? $pdfVersion : '')) ?>
+                            <?= $esc(sprintf(__('mPDF %s disponível (GD ok). Imagens são baixadas pelo servidor e embutidas no PDF.', 'kbwizard'), $pdfVersion !== '' ? $pdfVersion : '')) ?>
                         <?php else: ?>
                             <?= $esc(__('Google: sem dependências. mPDF: gera no servidor e embute as imagens do artigo (requer composer).', 'kbwizard')) ?>
                         <?php endif; ?>

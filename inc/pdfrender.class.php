@@ -88,6 +88,10 @@ class PluginKbwizardPdfRender
             'autoload'  => self::vendorAutoload(),
             'temp_dir'  => $tempDir,
             'writable'  => is_dir($tempDir) && is_writable($tempDir),
+            'gd'        => extension_loaded('gd'),
+            'mbstring'  => extension_loaded('mbstring'),
+            'curl'      => function_exists('curl_init'),
+            'fopen'     => (bool)ini_get('allow_url_fopen'),
         ];
     }
 
@@ -144,7 +148,7 @@ class PluginKbwizardPdfRender
                 . 'padding-top:2mm;text-align:right;">{PAGENO}/{nbpg}</div>';
             $mpdf->SetHTMLFooter($footer);
 
-            $mpdf->WriteHTML(self::css() . $html);
+            $mpdf->WriteHTML(self::css() . self::embedImages($html));
 
             $bytes = (string)$mpdf->Output('', 'S');
         } catch (Throwable $e) {
@@ -158,6 +162,134 @@ class PluginKbwizardPdfRender
         }
 
         return $bytes;
+    }
+
+    /**
+     * Baixa as imagens no servidor e as embute como data URI.
+     *
+     * O mPDF tenta buscar cada <img> por conta própria e falha sem avisar quando
+     * allow_url_fopen está desligado, quando o certificado é interno ou quando a
+     * URL exige sessão. Com data URI o binário já vai no HTML e a imagem entra
+     * no PDF mesmo com o GLPI em rede interna.
+     */
+    private static function embedImages(string $html): string
+    {
+        if (stripos($html, '<img') === false) {
+            return $html;
+        }
+
+        $cache    = [];
+        $embedded = 0;
+        $failed   = 0;
+
+        $html = (string)preg_replace_callback(
+            '#<img\b[^>]*>#i',
+            static function (array $m) use (&$cache, &$embedded, &$failed): string {
+                $tag = $m[0];
+                if (!preg_match('#\bsrc\s*=\s*(["\'])(.*?)\1#i', $tag, $sm)) {
+                    return $tag;
+                }
+                $src = html_entity_decode(trim($sm[2]), ENT_QUOTES, 'UTF-8');
+                if ($src === '' || stripos($src, 'data:') === 0) {
+                    return $tag;
+                }
+
+                if (!array_key_exists($src, $cache)) {
+                    $cache[$src] = self::fetchImage($src);
+                }
+                if ($cache[$src] === null) {
+                    $failed++;
+                    return $tag;
+                }
+                $embedded++;
+
+                return (string)preg_replace(
+                    '#\bsrc\s*=\s*(["\'])(.*?)\1#i',
+                    'src="' . $cache[$src] . '"',
+                    $tag,
+                    1
+                );
+            },
+            $html
+        );
+
+        if ($embedded > 0 || $failed > 0) {
+            self::log("imagens: embutidas=$embedded falharam=$failed");
+        }
+
+        return $html;
+    }
+
+    /**
+     * Baixa uma imagem e devolve a data URI, ou null se não for possível.
+     */
+    private static function fetchImage(string $url): ?string
+    {
+        if (stripos($url, 'http://') !== 0 && stripos($url, 'https://') !== 0) {
+            $base = '';
+            if (class_exists('PluginKbwizardDriveExport')) {
+                try {
+                    $base = rtrim(PluginKbwizardDriveExport::baseUrl(), '/');
+                } catch (Throwable $e) {
+                    $base = '';
+                }
+            }
+            if ($base === '' || strpos($url, '/') !== 0) {
+                self::log('imagem relativa sem url_base configurado: ' . $url);
+                return null;
+            }
+            $url = $base . $url;
+        }
+
+        $ch = curl_init($url);
+        if ($ch === false) {
+            return null;
+        }
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS      => 3,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT        => 20,
+            // Intranet pode usar certificado interno/autoassinado.
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_USERAGENT      => 'KBWizard-PDF/1.0',
+        ]);
+        $body   = curl_exec($ch);
+        $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $type   = (string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $err    = curl_error($ch);
+        curl_close($ch);
+
+        if ($body === false || $body === '' || $status < 200 || $status >= 300) {
+            self::log("imagem não baixada (HTTP $status" . ($err !== '' ? ", $err" : '') . "): $url");
+            return null;
+        }
+        if (strlen($body) > 10 * 1024 * 1024) {
+            self::log('imagem ignorada por tamanho: ' . $url);
+            return null;
+        }
+
+        $type = strtolower(trim(explode(';', $type)[0]));
+        if (strpos($type, 'image/') !== 0) {
+            $info = @getimagesizefromstring($body);
+            if (is_array($info) && !empty($info['mime'])) {
+                $type = strtolower((string)$info['mime']);
+            } else {
+                self::log("resposta não é imagem (HTTP $status, $type): $url");
+                return null;
+            }
+        }
+
+        return 'data:' . $type . ';base64,' . base64_encode($body);
+    }
+
+    private static function log(string $message): void
+    {
+        if (class_exists('PluginKbwizardToolbox')) {
+            PluginKbwizardToolbox::log('pdfrender: ' . $message);
+        }
     }
 
     /**

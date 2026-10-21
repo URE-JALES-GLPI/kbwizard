@@ -2,6 +2,7 @@
 
 ## 1.4.0 - 2026-10-21 OAuth com conta Google (sem Workspace) — ATUAL
 - **Feature**: sincronização passa a funcionar com **conta Gmail comum** via **OAuth 2.0** (`inc/driveoauth.class.php` + `front/oauth2callback.php`), sem Google Workspace e sem Shared Drive
+- **Fix**: mPDF passou a **baixar as imagens no servidor e embuti-las como data URI** (`pdfrender: embedImages`), em vez de deixar o mPDF buscar cada `<img>` sozinho — era isso que fazia a imagem virar apenas link no PDF; falhas de download agora vão para o log com o HTTP recebido, e a tela avisa se `ext-gd` estiver desativada
 - **UI**: botão **Processar fila agora** (executa 10 itens na hora) e tabela **Status por artigo** (nome, badge de status, links para Doc/PDF, tentativas, última sincronização e erro) — dá para conferir artigo por artigo se subiu
 - **Fix**: fila não filtra mais por `is_deleted` quando a instalação não tem essa coluna em `glpi_knowbaseitems` (evitava "Unknown column" e devolvia 0 silenciosamente); enfileiramento passou a usar a API do GLPI em vez de SQL cru, com diagnóstico no log e em **Último erro**
 - **Feature**: motor de PDF selecionável — **Google** (padrão, `files.export` a partir do Doc) ou **mPDF** (renderiza no servidor com `inc/pdfrender.class.php`, `composer require mpdf/mpdf`), com **fallback automático para o Google** se o mPDF não estiver instalado ou falhar; no modo mPDF as imagens entram mesmo com GLPI em IP interno
