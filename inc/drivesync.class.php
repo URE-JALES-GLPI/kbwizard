@@ -377,11 +377,12 @@ class PluginKbwizardDriveSync
         global $DB;
         $ids = [];
         try {
-            foreach ($DB->request([
-                'SELECT' => ['id'],
-                'FROM'   => KnowbaseItem::getTable(),
-                'WHERE'  => ['is_deleted' => 0],
-            ]) as $row) {
+            $query  = ['SELECT' => ['id'], 'FROM' => KnowbaseItem::getTable()];
+            $active = self::activeKbCriteria();
+            if ($active !== []) {
+                $query['WHERE'] = $active;
+            }
+            foreach ($DB->request($query) as $row) {
                 $ids[] = (int)$row['id'];
             }
         } catch (Throwable $e) {
@@ -465,6 +466,29 @@ class PluginKbwizardDriveSync
     }
 
     /**
+     * Critério de "artigo ativo". Algumas versões do GLPI não têm a coluna
+     * is_deleted em glpi_knowbaseitems (a exclusão é definitiva), e filtrar
+     * por ela derruba a consulta com "Unknown column".
+     * @return array<string,mixed>
+     */
+    private static function activeKbCriteria(): array
+    {
+        global $DB;
+        if (!$DB) {
+            return [];
+        }
+        try {
+            if (!$DB->fieldExists(KnowbaseItem::getTable(), 'is_deleted')) {
+                return [];
+            }
+        } catch (Throwable $e) {
+            // Sem certeza do schema: não filtra (listar todos é inofensivo).
+            return [];
+        }
+        return ['is_deleted' => 0];
+    }
+
+    /**
      * Total de artigos ativos (não excluídos) na Base de Conhecimento.
      */
     public static function countArticles(): int
@@ -474,11 +498,12 @@ class PluginKbwizardDriveSync
             return 0;
         }
         try {
-            foreach ($DB->request([
-                'SELECT' => ['COUNT' => 'id'],
-                'FROM'   => KnowbaseItem::getTable(),
-                'WHERE'  => ['is_deleted' => 0],
-            ]) as $row) {
+            $query  = ['SELECT' => ['COUNT' => 'id'], 'FROM' => KnowbaseItem::getTable()];
+            $active = self::activeKbCriteria();
+            if ($active !== []) {
+                $query['WHERE'] = $active;
+            }
+            foreach ($DB->request($query) as $row) {
                 return self::scalarCount($row);
             }
         } catch (Throwable $e) {
