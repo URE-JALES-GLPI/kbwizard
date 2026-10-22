@@ -1,6 +1,14 @@
 # Changelog
 
-## 1.5.0 - 2026-10-22 Opt-in por artigo na sincronização com o Drive — ATUAL
+## 1.5.1 - 2026-10-22 Processamento da fila com progresso (sem recarregar)
+- **UI**: **Processar fila agora** deixou de recarregar a página a cada lote: o botão dispara um loop AJAX que processa 10 artigos / 20s por vez e mostra barra de progresso, contadores de sincronizados/erros/ignorados/restantes, botão de cancelar e resumo final
+- **Aviso**: enquanto o loop roda, a tela mostra **“Não feche esta aba durante o processamento”** e o navegador pede confirmação ao tentar sair/atualizar; fechar a aba interrompe o processamento e mantém o restante na fila
+- **Concorrência**: `PluginKbwizardDriveSync::processQueue()` usa `GET_LOCK` não bloqueante; se o cron (ou outra aba) já estiver processando, devolve `busy` e a tela tenta de novo, sem duplicar envios
+- **CSRF**: no GLPI 11 o endpoint AJAX valida o token e devolve um token válido a cada lote (o `checkCSRF` consome o anterior); no GLPI 12 a proteção é feita pelo `CheckCsrfListener` via `Sec-Fetch-Site`/`Origin`
+- **Fallback**: sem JavaScript o botão continua enviando o POST antigo; o fluxo manual também trata o caso de fila ocupada
+- **Compat**: `setup.php`/`composer.json` em `1.5.1`; nenhuma migração de banco
+
+## 1.5.0 - 2026-10-22 Opt-in por artigo na sincronização com o Drive
 - **Feature**: cada artigo agora tem o switch **Sincronizar com Google Drive** na aba *Passo a Passo*; só artigos marcados entram na fila, são processados pelo cron/"Processar fila agora" e são considerados em **Sincronizar artigos marcados**
 - **Feature**: coluna **Sincronizar** na tabela *Status por artigo* com ação em lote **Salvar seleção**, além do badge **Desativados** nas estatísticas
 - **Comportamento**: desmarcar interrompe as atualizações mas mantém o Google Doc/PDF e os `fileId` no Drive; remarcar retoma no mesmo arquivo, sem duplicar

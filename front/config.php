@@ -33,10 +33,15 @@ if ($knowbaseitems_id) {
  * Salva os campos e executa a ação escolhida (testar / sincronizar / reprocessar).
  */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
-    // CSRF defensivo dual GLPI 11/12 (mesmo padrão do restante do arquivo).
-    if (isset($_POST['_glpi_csrf_token']) && method_exists('Session', 'checkCSRF')) {
+    // CSRF defensivo dual GLPI 11/12. No 11 o token é validado aqui; no 12 o
+    // CheckCsrfListener já validou Sec-Fetch-Site/Origin e os tokens viraram
+    // no-op (Session::checkCSRF é deprecated).
+    $isGlpi12 = defined('GLPI_VERSION') && version_compare(GLPI_VERSION, '12.0', '>=');
+    $csrfOk   = $isGlpi12;
+    if (!$isGlpi12 && isset($_POST['_glpi_csrf_token']) && method_exists('Session', 'checkCSRF')) {
         try {
             Session::checkCSRF($_POST);
+            $csrfOk = true;
         } catch (Throwable $e) {
             if (class_exists('PluginKbwizardToolbox')) {
                 PluginKbwizardToolbox::log('CSRF double-check drive ignorado: ' . $e->getMessage());
@@ -61,6 +66,81 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
         if (class_exists('PluginKbwizardToolbox')) {
             PluginKbwizardToolbox::log('drive config: falha ao criar pdf_engine: ' . $e->getMessage());
         }
+    }
+
+    // Endpoint AJAX do "Processar fila agora": devolve JSON e, no GLPI 11, um
+    // token CSRF válido para o próximo lote (o checkCSRF consome o anterior).
+    // No GLPI 12 o CheckCsrfListener valida os headers e não há token. O JS
+    // chama em sequência até remaining=0, sem recarregar a página.
+    if (isset($_POST['process_chunk'])) {
+        $jsonResponse = static function (array $payload, int $status = 200): void {
+            http_response_code($status);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
+        };
+
+        if (!$csrfOk) {
+            $jsonResponse([
+                'ok'      => false,
+                'message' => __('Sessão expirada. Atualize a página e tente novamente.', 'kbwizard'),
+            ], 403);
+        }
+
+        $newToken = '';
+        if (!$isGlpi12 && method_exists('Session', 'getNewCSRFToken')) {
+            try {
+                $newToken = (string)Session::getNewCSRFToken();
+            } catch (Throwable $e) {
+                $newToken = '';
+            }
+        }
+
+        if (!PluginKbwizardDriveConfig::isConfigured()) {
+            $jsonResponse([
+                'ok'         => false,
+                'configured' => false,
+                'message'    => __('Ative a sincronização e conecte a conta Google antes de processar a fila.', 'kbwizard'),
+                'csrf'       => $newToken,
+            ]);
+        }
+
+        // Mesmo orçamento do process_now: 10 artigos / 20s por requisição.
+        @set_time_limit(120);
+        $currentMemory = (string)ini_get('memory_limit');
+        if ($currentMemory !== '-1' && (int)$currentMemory < 512 && stripos($currentMemory, 'G') === false) {
+            @ini_set('memory_limit', '512M');
+        }
+
+        try {
+            $res = PluginKbwizardDriveSync::processQueue(10, 20);
+        } catch (Throwable $e) {
+            $jsonResponse([
+                'ok'      => false,
+                'message' => $e->getMessage(),
+                'csrf'    => $newToken,
+            ], 500);
+        }
+
+        if (!empty($res['errors'])) {
+            $first = reset($res['errors']);
+            PluginKbwizardDriveConfig::setLastError((string)$first);
+        }
+
+        $jsonResponse([
+            'ok'         => true,
+            'configured' => true,
+            'busy'       => !empty($res['busy']),
+            'processed'  => (int)($res['processed'] ?? 0),
+            'synced'     => (int)($res['synced'] ?? 0),
+            'failed'     => (int)($res['failed'] ?? 0),
+            'skipped'    => (int)($res['skipped'] ?? 0),
+            'remaining'  => (int)($res['remaining'] ?? 0),
+            'timed_out'  => !empty($res['timed_out']),
+            'errors'     => array_values($res['errors'] ?? []),
+            'stats'      => PluginKbwizardDriveSync::stats(),
+            'csrf'       => $newToken,
+        ]);
     }
 
     $webDir = class_exists('PluginKbwizardToolbox')
@@ -317,28 +397,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
             }
 
             $res = PluginKbwizardDriveSync::processQueue(10, 20);
-            $remaining = (int)($res['remaining'] ?? 0);
 
-            $message = sprintf(
-                __('Fila processada: %d sincronizado(s), %d com erro, %d ignorado(s).', 'kbwizard'),
-                (int)($res['synced'] ?? 0),
-                (int)($res['failed'] ?? 0),
-                (int)($res['skipped'] ?? 0)
-            );
-            if (!empty($res['timed_out']) && $remaining > 0) {
-                $message .= ' ' . sprintf(
-                    __('Restam %d na fila — clique em "Processar fila agora" novamente.', 'kbwizard'),
-                    $remaining
+            if (!empty($res['busy'])) {
+                // O AJAX ou o cron está com o lock; não processa em paralelo.
+                Session::addMessageAfterRedirect(
+                    __('A fila já está sendo processada por outro processo. Tente novamente em instantes.', 'kbwizard'),
+                    true,
+                    WARNING
                 );
-            } elseif ($remaining > 0) {
-                $message .= ' ' . sprintf(__('Restam %d na fila.', 'kbwizard'), $remaining);
-            }
+            } else {
+                $remaining = (int)($res['remaining'] ?? 0);
+                $message = sprintf(
+                    __('Fila processada: %d sincronizado(s), %d com erro, %d ignorado(s).', 'kbwizard'),
+                    (int)($res['synced'] ?? 0),
+                    (int)($res['failed'] ?? 0),
+                    (int)($res['skipped'] ?? 0)
+                );
+                if (!empty($res['timed_out']) && $remaining > 0) {
+                    $message .= ' ' . sprintf(
+                        __('Restam %d na fila — clique em "Processar fila agora" novamente.', 'kbwizard'),
+                        $remaining
+                    );
+                } elseif ($remaining > 0) {
+                    $message .= ' ' . sprintf(__('Restam %d na fila.', 'kbwizard'), $remaining);
+                }
 
-            Session::addMessageAfterRedirect(
-                $message,
-                true,
-                !empty($res['failed']) ? WARNING : INFO
-            );
+                Session::addMessageAfterRedirect(
+                    $message,
+                    true,
+                    !empty($res['failed']) ? WARNING : INFO
+                );
+            }
             if (!empty($res['errors'])) {
                 $first = reset($res['errors']);
                 PluginKbwizardDriveConfig::setLastError((string)$first);

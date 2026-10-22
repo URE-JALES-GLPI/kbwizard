@@ -248,7 +248,11 @@ class PluginKbwizardDriveSync
      * "Ocorreu um erro inesperado" do GLPI depois de alguns arquivos já terem
      * subido para o Drive.
      *
-     * @return array{processed:int,synced:int,failed:int,skipped:int,errors:array<int,string>,remaining:int,timed_out:bool}
+     * Um lock MySQL não bloqueante evita que o cron e o AJAX "Processar fila
+     * agora" processem os mesmos artigos em paralelo. Quando o lock está
+     * ocupado, retorna busy=true sem alterar nada.
+     *
+     * @return array{processed:int,synced:int,failed:int,skipped:int,errors:array<int,string>,remaining:int,timed_out:bool,busy:bool}
      */
     public static function processQueue(int $limit = self::BATCH_SIZE, int $timeBudget = 20): array
     {
@@ -260,6 +264,7 @@ class PluginKbwizardDriveSync
             'errors'    => [],
             'remaining' => 0,
             'timed_out' => false,
+            'busy'      => false,
         ];
 
         if (!self::tableExists()) {
@@ -270,70 +275,95 @@ class PluginKbwizardDriveSync
         }
 
         global $DB;
-        $ids = [];
-        try {
-            $iterator = $DB->request([
-                'SELECT' => ['knowbaseitems_id'],
-                'FROM'   => self::TABLE,
-                'WHERE'  => ['status' => self::STATUS_PENDING],
-                'ORDER'  => ['date_mod ASC', 'id ASC'],
-                'LIMIT'  => max(1, $limit),
-            ]);
-            foreach ($iterator as $row) {
-                $ids[] = (int)$row['knowbaseitems_id'];
+
+        $lockName = 'kbwizard_drive_queue';
+        $locked   = false;
+        if ($DB && method_exists($DB, 'getLock')) {
+            try {
+                $locked = (bool)$DB->getLock($lockName);
+            } catch (Throwable $e) {
+                $locked = false;
             }
-        } catch (Throwable $e) {
-            if (class_exists('PluginKbwizardToolbox')) {
-                PluginKbwizardToolbox::log('processQueue select falhou: ' . $e->getMessage());
+            if (!$locked) {
+                $result['busy'] = true;
+                return $result;
             }
-            return $result;
         }
 
-        $startedAt = microtime(true);
-        $budget    = max(5, $timeBudget);
-
-        foreach ($ids as $kbId) {
-            if (!self::isEnabled((int)$kbId)) {
-                // Auto-reparo: uma linha pendente de antes do opt-in não deve
-                // ser processada nem continuar contando na fila.
-                self::setStateValues((int)$kbId, [
-                    'status'     => self::STATUS_DISABLED,
-                    'attempts'   => 0,
-                    'last_error' => __('Sincronização desativada neste artigo.', 'kbwizard'),
-                ]);
-                continue;
-            }
-
-            if ($result['processed'] > 0 && (microtime(true) - $startedAt) >= $budget) {
-                $result['timed_out'] = true;
-                break;
-            }
-
-            $result['processed']++;
+        try {
+            $ids = [];
             try {
-                $outcome = self::syncItem($kbId);
-                switch ($outcome['status']) {
-                    case 'synced':
-                        $result['synced']++;
-                        break;
-                    case 'error':
-                        $result['failed']++;
-                        $result['errors'][$kbId] = (string)($outcome['message'] ?? '');
-                        break;
-                    default:
-                        $result['skipped']++;
-                        break;
+                $iterator = $DB->request([
+                    'SELECT' => ['knowbaseitems_id'],
+                    'FROM'   => self::TABLE,
+                    'WHERE'  => ['status' => self::STATUS_PENDING],
+                    'ORDER'  => ['date_mod ASC', 'id ASC'],
+                    'LIMIT'  => max(1, $limit),
+                ]);
+                foreach ($iterator as $row) {
+                    $ids[] = (int)$row['knowbaseitems_id'];
                 }
             } catch (Throwable $e) {
-                $result['failed']++;
-                $result['errors'][$kbId] = $e->getMessage();
-                self::registerFailure($kbId, $e->getMessage());
+                if (class_exists('PluginKbwizardToolbox')) {
+                    PluginKbwizardToolbox::log('processQueue select falhou: ' . $e->getMessage());
+                }
+                return $result;
+            }
+
+            $startedAt = microtime(true);
+            $budget    = max(5, $timeBudget);
+
+            foreach ($ids as $kbId) {
+                if (!self::isEnabled((int)$kbId)) {
+                    // Auto-reparo: uma linha pendente de antes do opt-in não deve
+                    // ser processada nem continuar contando na fila.
+                    self::setStateValues((int)$kbId, [
+                        'status'     => self::STATUS_DISABLED,
+                        'attempts'   => 0,
+                        'last_error' => __('Sincronização desativada neste artigo.', 'kbwizard'),
+                    ]);
+                    continue;
+                }
+
+                if ($result['processed'] > 0 && (microtime(true) - $startedAt) >= $budget) {
+                    $result['timed_out'] = true;
+                    break;
+                }
+
+                $result['processed']++;
+                try {
+                    $outcome = self::syncItem($kbId);
+                    switch ($outcome['status']) {
+                        case 'synced':
+                            $result['synced']++;
+                            break;
+                        case 'error':
+                            $result['failed']++;
+                            $result['errors'][$kbId] = (string)($outcome['message'] ?? '');
+                            break;
+                        default:
+                            $result['skipped']++;
+                            break;
+                    }
+                } catch (Throwable $e) {
+                    $result['failed']++;
+                    $result['errors'][$kbId] = $e->getMessage();
+                    self::registerFailure($kbId, $e->getMessage());
+                }
+            }
+
+            $result['remaining'] = self::countPending();
+
+            return $result;
+        } finally {
+            if ($locked) {
+                try {
+                    $DB->releaseLock($lockName);
+                } catch (Throwable $e) {
+                    // A conexão fecha no fim da requisição e libera o lock.
+                }
             }
         }
-
-        $result['remaining'] = self::countPending();
-
-        return $result;
     }
 
     /**

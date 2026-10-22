@@ -53,6 +53,10 @@ $kbUrl = ($CFG_GLPI['root_doc'] ?? '') . '/front/knowbaseitem.form.php?id=';
 $esc = static function ($value): string {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
 };
+
+$csrfToken = (defined('GLPI_VERSION') && version_compare(GLPI_VERSION, '12.0', '>='))
+    ? ''
+    : Session::getNewCSRFToken();
 ?>
 <div class="card mb-3" id="kbwizard-drive-config">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -100,7 +104,7 @@ $esc = static function ($value): string {
         <?php endif; ?>
 
         <form method="post" action="<?= $esc($driveActionUrl) ?>" enctype="multipart/form-data" data-submit-once>
-            <input type="hidden" name="_glpi_csrf_token" value="<?= $esc(Session::getNewCSRFToken()) ?>" />
+            <input type="hidden" name="_glpi_csrf_token" value="<?= $esc($csrfToken) ?>" />
 
             <div class="row g-3">
                 <div class="col-md-4">
@@ -376,7 +380,7 @@ $esc = static function ($value): string {
                 <button type="submit" name="sync_all" value="1" class="btn btn-outline-secondary">
                     <i class="ti ti-refresh me-1"></i><?= $esc(__('Sincronizar artigos marcados', 'kbwizard')) ?>
                 </button>
-                <button type="submit" name="process_now" value="1" class="btn btn-outline-success">
+                <button type="submit" name="process_now" value="1" class="btn btn-outline-success" id="kbw-process-now" data-kbw-process="1">
                     <i class="ti ti-player-play me-1"></i><?= $esc(__('Processar fila agora', 'kbwizard')) ?>
                 </button>
                 <button type="submit" name="retry_errors" value="1" class="btn btn-outline-warning">
@@ -384,6 +388,43 @@ $esc = static function ($value): string {
                 </button>
             </div>
         </form>
+
+        <div id="kbw-drive-progress" class="mt-3 d-none" data-kbw-progress
+             data-endpoint="<?= $esc($driveActionUrl) ?>"
+             data-pending="<?= (int)$stats['pending'] ?>"
+             data-configured="<?= PluginKbwizardDriveConfig::isConfigured() ? '1' : '0' ?>">
+            <div class="alert alert-warning d-flex align-items-start gap-2 mb-2">
+                <i class="ti ti-alert-triangle mt-1"></i>
+                <div>
+                    <strong><?= $esc(__('Não feche esta aba durante o processamento.', 'kbwizard')) ?></strong>
+                    <div class="small">
+                        <?= $esc(__('A fila é processada em lotes de até 10 artigos. Se você fechar ou atualizar a página, o processamento para e os itens restantes continuam pendentes.', 'kbwizard')) ?>
+                    </div>
+                </div>
+            </div>
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <span id="kbw-drive-progress-title"><?= $esc(__('Processando fila...', 'kbwizard')) ?></span>
+                <span id="kbw-drive-progress-count" class="small text-muted"></span>
+            </div>
+            <div class="progress" style="height: 1.25rem;" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div id="kbw-drive-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" style="width: 0%;">0%</div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mt-2 small">
+                <span class="badge bg-success"><?= $esc(__('Sincronizados:', 'kbwizard')) ?> <span id="kbw-drive-synced">0</span></span>
+                <span class="badge bg-danger"><?= $esc(__('Erros:', 'kbwizard')) ?> <span id="kbw-drive-failed">0</span></span>
+                <span class="badge bg-secondary"><?= $esc(__('Ignorados:', 'kbwizard')) ?> <span id="kbw-drive-skipped">0</span></span>
+                <span class="badge bg-warning text-dark"><?= $esc(__('Restantes:', 'kbwizard')) ?> <span id="kbw-drive-remaining"><?= (int)$stats['pending'] ?></span></span>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mt-2">
+                <button type="button" class="btn btn-sm btn-outline-danger" id="kbw-drive-cancel">
+                    <?= $esc(__('Cancelar após o lote atual', 'kbwizard')) ?>
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="kbw-drive-reload">
+                    <?= $esc(__('Atualizar página', 'kbwizard')) ?>
+                </button>
+            </div>
+            <div id="kbw-drive-summary" class="mt-2 small" aria-live="polite"></div>
+        </div>
 
         <hr>
 
@@ -425,7 +466,7 @@ $esc = static function ($value): string {
         <?php if ($overview !== []): ?>
             <h4 class="mt-4 mb-2"><?= $esc(__('Status por artigo', 'kbwizard')) ?></h4>
             <form method="post" action="<?= $esc($driveActionUrl) ?>" data-submit-once>
-                <input type="hidden" name="_glpi_csrf_token" value="<?= $esc(Session::getNewCSRFToken()) ?>" />
+                <input type="hidden" name="_glpi_csrf_token" value="<?= $esc($csrfToken) ?>" />
                 <div class="table-responsive" style="max-height:420px;overflow:auto">
                     <table class="table table-sm table-hover align-middle mb-0">
                         <thead class="table-light" style="position:sticky;top:0;z-index:1">
@@ -516,3 +557,4 @@ $esc = static function ($value): string {
         </div>
     </div>
 </div>
+<script src="<?= $esc($driveWebDir . '/public/js/drivequeue.js?v=' . PLUGIN_KBWIZARD_VERSION) ?>" defer></script>
