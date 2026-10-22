@@ -274,14 +274,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
                 ERROR
             );
         } else {
-            $res = PluginKbwizardDriveSync::processQueue(10);
+            // mPDF + uploads em 10 artigos podem passar do max_execution_time
+            // padrão (30s), o que derruba a requisição e mostra o erro genérico
+            // do GLPI depois de parte dos arquivos já ter subido.
+            @set_time_limit(120);
+            $currentMemory = (string)ini_get('memory_limit');
+            if ($currentMemory !== '-1' && (int)$currentMemory < 512 && stripos($currentMemory, 'G') === false) {
+                @ini_set('memory_limit', '512M');
+            }
+
+            $res = PluginKbwizardDriveSync::processQueue(10, 20);
+            $remaining = (int)($res['remaining'] ?? 0);
+
+            $message = sprintf(
+                __('Fila processada: %d sincronizado(s), %d com erro, %d ignorado(s).', 'kbwizard'),
+                (int)($res['synced'] ?? 0),
+                (int)($res['failed'] ?? 0),
+                (int)($res['skipped'] ?? 0)
+            );
+            if (!empty($res['timed_out']) && $remaining > 0) {
+                $message .= ' ' . sprintf(
+                    __('Restam %d na fila — clique em "Processar fila agora" novamente.', 'kbwizard'),
+                    $remaining
+                );
+            } elseif ($remaining > 0) {
+                $message .= ' ' . sprintf(__('Restam %d na fila.', 'kbwizard'), $remaining);
+            }
+
             Session::addMessageAfterRedirect(
-                sprintf(
-                    __('Fila processada: %d sincronizado(s), %d com erro, %d ignorado(s).', 'kbwizard'),
-                    (int)($res['synced'] ?? 0),
-                    (int)($res['failed'] ?? 0),
-                    (int)($res['skipped'] ?? 0)
-                ),
+                $message,
                 true,
                 !empty($res['failed']) ? WARNING : INFO
             );

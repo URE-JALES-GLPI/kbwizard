@@ -115,11 +115,26 @@ class PluginKbwizardDriveSync
 
     /**
      * Processa a fila pendente.
-     * @return array{processed:int,synced:int,failed:int,skipped:int,errors:array<int,string>}
+     *
+     * O laço respeita um orçamento de tempo: se o lote estourar, o restante
+     * continua `pending` e a requisição termina normalmente. Sem isso, 10
+     * artigos com mPDF passam do `max_execution_time` e o navegador recebe o
+     * "Ocorreu um erro inesperado" do GLPI depois de alguns arquivos já terem
+     * subido para o Drive.
+     *
+     * @return array{processed:int,synced:int,failed:int,skipped:int,errors:array<int,string>,remaining:int,timed_out:bool}
      */
-    public static function processQueue(int $limit = self::BATCH_SIZE): array
+    public static function processQueue(int $limit = self::BATCH_SIZE, int $timeBudget = 20): array
     {
-        $result = ['processed' => 0, 'synced' => 0, 'failed' => 0, 'skipped' => 0, 'errors' => []];
+        $result = [
+            'processed' => 0,
+            'synced'    => 0,
+            'failed'    => 0,
+            'skipped'   => 0,
+            'errors'    => [],
+            'remaining' => 0,
+            'timed_out' => false,
+        ];
 
         if (!self::tableExists()) {
             return $result;
@@ -148,7 +163,15 @@ class PluginKbwizardDriveSync
             return $result;
         }
 
+        $startedAt = microtime(true);
+        $budget    = max(5, $timeBudget);
+
         foreach ($ids as $kbId) {
+            if ($result['processed'] > 0 && (microtime(true) - $startedAt) >= $budget) {
+                $result['timed_out'] = true;
+                break;
+            }
+
             $result['processed']++;
             try {
                 $outcome = self::syncItem($kbId);
@@ -171,7 +194,35 @@ class PluginKbwizardDriveSync
             }
         }
 
+        $result['remaining'] = self::countPending();
+
         return $result;
+    }
+
+    /**
+     * Quantos artigos ainda estão na fila.
+     */
+    public static function countPending(): int
+    {
+        if (!self::tableExists()) {
+            return 0;
+        }
+        global $DB;
+        if (!$DB) {
+            return 0;
+        }
+        try {
+            foreach ($DB->request([
+                'SELECT' => ['COUNT' => 'id'],
+                'FROM'   => self::TABLE,
+                'WHERE'  => ['status' => self::STATUS_PENDING],
+            ]) as $row) {
+                return self::scalarCount($row);
+            }
+        } catch (Throwable $e) {
+            return 0;
+        }
+        return 0;
     }
 
     /**
