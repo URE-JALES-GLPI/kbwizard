@@ -1,6 +1,12 @@
 # Changelog
 
-## 1.4.0 - 2026-10-21 OAuth com conta Google (sem Workspace) — ATUAL
+## 1.5.0 - 2026-10-22 Opt-in por artigo na sincronização com o Drive — ATUAL
+- **Feature**: cada artigo agora tem o switch **Sincronizar com Google Drive** na aba *Passo a Passo*; só artigos marcados entram na fila, são processados pelo cron/"Processar fila agora" e são considerados em **Sincronizar artigos marcados**
+- **Feature**: coluna **Sincronizar** na tabela *Status por artigo* com ação em lote **Salvar seleção**, além do badge **Desativados** nas estatísticas
+- **Comportamento**: desmarcar interrompe as atualizações mas mantém o Google Doc/PDF e os `fileId` no Drive; remarcar retoma no mesmo arquivo, sem duplicar
+- **Migração**: a coluna `drive_sync` entra com padrão `0` (opt-in puro) — após atualizar, marque os artigos que devem ser espelhados
+
+## 1.4.0 - 2026-10-21 OAuth com conta Google (sem Workspace)
 - **Feature**: sincronização passa a funcionar com **conta Gmail comum** via **OAuth 2.0** (`inc/driveoauth.class.php` + `front/oauth2callback.php`), sem Google Workspace e sem Shared Drive
 - **Fix**: **Processar fila agora** não estoura mais o `max_execution_time` — o lote respeita um orçamento de 20s, sobe `set_time_limit`/`memory_limit` e informa quantos itens restaram (antes, 10 artigos com mPDF podiam derrubar a requisição e mostrar o "Ocorreu um erro inesperado" do GLPI depois de alguns arquivos já terem subido)
 - **Fix**: download de imagem com timeout de 8s (era 20s por imagem), para uma URL morta não consumir todo o tempo do lote

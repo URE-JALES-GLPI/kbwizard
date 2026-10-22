@@ -87,6 +87,12 @@ function plugin_kbwizard_create_drive_tables(): void {
             }
         }
 
+        // Opt-in por artigo: instalações antigas não têm a coluna drive_sync.
+        $cfgTable = 'glpi_plugin_kbwizard_configs';
+        if ($DB->tableExists($cfgTable) && !plugin_kbwizard_drive_column_exists($cfgTable, 'drive_sync')) {
+            $DB->doQuery("ALTER TABLE `$cfgTable` ADD `drive_sync` tinyint(1) NOT NULL DEFAULT 0");
+        }
+
         if (!$DB->tableExists('glpi_plugin_kbwizard_drive_files')) {
             $table = 'glpi_plugin_kbwizard_drive_files';
             $DB->doQuery("CREATE TABLE IF NOT EXISTS `$table` (
@@ -151,6 +157,7 @@ function plugin_kbwizard_install() {
             `allow_jump` tinyint(1) NOT NULL DEFAULT 1,
             `require_sequential` tinyint(1) NOT NULL DEFAULT 0,
             `auto_titles` text,
+            `drive_sync` tinyint(1) NOT NULL DEFAULT 0,
             `date_creation` timestamp NULL DEFAULT NULL,
             `date_mod` timestamp NULL DEFAULT NULL,
             PRIMARY KEY (`id`),
@@ -293,6 +300,15 @@ function plugin_kbwizard_update($current_version) {
     if (version_compare($current_version, '1.4.0', '<')) {
         plugin_kbwizard_create_drive_tables();
         Toolbox::logInFile('kbwizard', "KB Wizard atualizado para 1.4.0 - colunas de OAuth verificadas\n");
+    }
+
+    // Atualização para 1.5.0 - opt-in por artigo na sincronização com o Drive
+    if (version_compare($current_version, '1.5.0', '<')) {
+        $table = 'glpi_plugin_kbwizard_configs';
+        if ($DB->tableExists($table) && !plugin_kbwizard_drive_column_exists($table, 'drive_sync')) {
+            $DB->doQuery("ALTER TABLE `$table` ADD `drive_sync` tinyint(1) NOT NULL DEFAULT 0");
+        }
+        Toolbox::logInFile('kbwizard', "KB Wizard atualizado para 1.5.0 - coluna drive_sync adicionada\n");
     }
 
     // Atualizar direitos de perfil se existir

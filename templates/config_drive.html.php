@@ -13,7 +13,7 @@ if (!defined('GLPI_ROOT')) {
 }
 
 $cfg = is_array($driveCfg ?? null) ? $driveCfg : [];
-$stats = is_array($driveStats ?? null) ? $driveStats : ['pending' => 0, 'synced' => 0, 'error' => 0, 'skipped' => 0, 'total' => 0];
+$stats = is_array($driveStats ?? null) ? $driveStats : ['pending' => 0, 'synced' => 0, 'error' => 0, 'skipped' => 0, 'disabled' => 0, 'total' => 0];
 $isActive = !empty($cfg['is_active']);
 $exportDoc = !empty($cfg['export_doc']);
 $exportPdf = !empty($cfg['export_pdf']);
@@ -67,7 +67,7 @@ $esc = static function ($value): string {
 
     <div class="card-body">
         <p class="text-muted mb-3">
-            <?= $esc(__('Espelha os artigos da Base de Conhecimento no Google Drive como Google Doc + PDF. O NotebookLM sincroniza automaticamente apenas Google Docs nativos, por isso o Doc é o arquivo de referência.', 'kbwizard')) ?>
+            <?= $esc(__('Espelha os artigos da Base de Conhecimento no Google Drive como Google Doc + PDF. O NotebookLM sincroniza automaticamente apenas Google Docs nativos, por isso o Doc é o arquivo de referência. Somente os artigos marcados com "Sincronizar com Google Drive" entram na fila.', 'kbwizard')) ?>
         </p>
 
         <?php if (is_array($driveTest ?? null)): ?>
@@ -374,7 +374,7 @@ $esc = static function ($value): string {
                     <i class="ti ti-plug-connected me-1"></i><?= $esc(__('Testar conexão', 'kbwizard')) ?>
                 </button>
                 <button type="submit" name="sync_all" value="1" class="btn btn-outline-secondary">
-                    <i class="ti ti-refresh me-1"></i><?= $esc(__('Sincronizar todos os artigos', 'kbwizard')) ?>
+                    <i class="ti ti-refresh me-1"></i><?= $esc(__('Sincronizar artigos marcados', 'kbwizard')) ?>
                 </button>
                 <button type="submit" name="process_now" value="1" class="btn btn-outline-success">
                     <i class="ti ti-player-play me-1"></i><?= $esc(__('Processar fila agora', 'kbwizard')) ?>
@@ -408,6 +408,11 @@ $esc = static function ($value): string {
                     <?= $esc(sprintf(__('Ignorados: %d', 'kbwizard'), (int)$stats['skipped'])) ?>
                 </span>
             </div>
+            <div class="col-auto">
+                <span class="badge bg-dark">
+                    <?= $esc(sprintf(__('Desativados: %d', 'kbwizard'), (int)($stats['disabled'] ?? 0))) ?>
+                </span>
+            </div>
         </div>
 
         <?php if ($lastError !== ''): ?>
@@ -419,76 +424,95 @@ $esc = static function ($value): string {
 
         <?php if ($overview !== []): ?>
             <h4 class="mt-4 mb-2"><?= $esc(__('Status por artigo', 'kbwizard')) ?></h4>
-            <div class="table-responsive" style="max-height:420px;overflow:auto">
-                <table class="table table-sm table-hover align-middle mb-0">
-                    <thead class="table-light" style="position:sticky;top:0;z-index:1">
-                        <tr>
-                            <th><?= $esc(__('Artigo', 'kbwizard')) ?></th>
-                            <th><?= $esc(__('Status', 'kbwizard')) ?></th>
-                            <th>Doc</th>
-                            <th>PDF</th>
-                            <th><?= $esc(__('Tentativas', 'kbwizard')) ?></th>
-                            <th><?= $esc(__('Última sincronização', 'kbwizard')) ?></th>
-                            <th><?= $esc(__('Erro', 'kbwizard')) ?></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    <?php foreach ($overview as $row):
-                        $status     = (string)($row['status'] ?? '');
-                        $kbId       = (int)($row['knowbaseitems_id'] ?? 0);
-                        $docFileId  = (string)($row['doc_file_id'] ?? '');
-                        $pdfFileId  = (string)($row['pdf_file_id'] ?? '');
-                        $rowError   = trim((string)($row['last_error'] ?? ''));
-                        $syncedAt   = (string)($row['date_sync'] ?? '');
-                        $attempts   = (int)($row['attempts'] ?? 0);
-                        if ($status === 'synced') {
-                            $label = __('sincronizado', 'kbwizard');
-                            $badge = 'bg-success';
-                        } elseif ($status === 'error') {
-                            $label = __('erro', 'kbwizard');
-                            $badge = 'bg-danger';
-                        } elseif ($status === 'skipped') {
-                            $label = __('ignorado', 'kbwizard');
-                            $badge = 'bg-secondary';
-                        } else {
-                            $label = __('pendente', 'kbwizard');
-                            $badge = 'bg-warning text-dark';
-                        }
-                    ?>
-                        <tr>
-                            <td>
-                                <a href="<?= $esc($kbUrl . $kbId) ?>">
-                                    <?= $esc((string)($row['kb_name'] ?? ('#' . $kbId))) ?>
-                                </a>
-                            </td>
-                            <td><span class="badge <?= $badge ?>"><?= $esc($label) ?></span></td>
-                            <td>
-                                <?php if ($docFileId !== ''): ?>
-                                    <a href="https://docs.google.com/document/d/<?= $esc(rawurlencode($docFileId)) ?>/edit" target="_blank" rel="noopener">Doc</a>
-                                <?php else: ?>—<?php endif; ?>
-                            </td>
-                            <td>
-                                <?php if ($pdfFileId !== ''): ?>
-                                    <a href="https://drive.google.com/file/d/<?= $esc(rawurlencode($pdfFileId)) ?>/view" target="_blank" rel="noopener">PDF</a>
-                                <?php else: ?>—<?php endif; ?>
-                            </td>
-                            <td><?= $attempts ?></td>
-                            <td class="small"><?= $esc($syncedAt !== '' ? $syncedAt : '—') ?></td>
-                            <td class="small text-danger" style="max-width:280px">
-                                <?= $esc($rowError !== '' ? mb_substr($rowError, 0, 160) : '') ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
+            <form method="post" action="<?= $esc($driveActionUrl) ?>" data-submit-once>
+                <input type="hidden" name="_glpi_csrf_token" value="<?= $esc(Session::getNewCSRFToken()) ?>" />
+                <div class="table-responsive" style="max-height:420px;overflow:auto">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light" style="position:sticky;top:0;z-index:1">
+                            <tr>
+                                <th style="width:90px"><?= $esc(__('Sincronizar', 'kbwizard')) ?></th>
+                                <th><?= $esc(__('Artigo', 'kbwizard')) ?></th>
+                                <th><?= $esc(__('Status', 'kbwizard')) ?></th>
+                                <th>Doc</th>
+                                <th>PDF</th>
+                                <th><?= $esc(__('Tentativas', 'kbwizard')) ?></th>
+                                <th><?= $esc(__('Última sincronização', 'kbwizard')) ?></th>
+                                <th><?= $esc(__('Erro', 'kbwizard')) ?></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($overview as $row):
+                            $status     = (string)($row['status'] ?? '');
+                            $kbId       = (int)($row['knowbaseitems_id'] ?? 0);
+                            $docFileId  = (string)($row['doc_file_id'] ?? '');
+                            $pdfFileId  = (string)($row['pdf_file_id'] ?? '');
+                            $rowError   = trim((string)($row['last_error'] ?? ''));
+                            $syncedAt   = (string)($row['date_sync'] ?? '');
+                            $attempts   = (int)($row['attempts'] ?? 0);
+                            if ($status === 'synced') {
+                                $label = __('sincronizado', 'kbwizard');
+                                $badge = 'bg-success';
+                            } elseif ($status === 'error') {
+                                $label = __('erro', 'kbwizard');
+                                $badge = 'bg-danger';
+                            } elseif ($status === 'disabled') {
+                                $label = __('sem sincronização', 'kbwizard');
+                                $badge = 'bg-secondary';
+                            } elseif ($status === 'skipped') {
+                                $label = __('ignorado', 'kbwizard');
+                                $badge = 'bg-secondary';
+                            } else {
+                                $label = __('pendente', 'kbwizard');
+                                $badge = 'bg-warning text-dark';
+                            }
+                        ?>
+                            <tr>
+                                <td class="text-center">
+                                    <input type="hidden" name="drive_sync_rows[]" value="<?= $kbId ?>">
+                                    <input class="form-check-input" type="checkbox" name="drive_sync_kb[]" value="<?= $kbId ?>" <?= !empty($row['drive_sync']) ? 'checked' : '' ?> aria-label="<?= $esc(__('Sincronizar este artigo', 'kbwizard')) ?>">
+                                </td>
+                                <td>
+                                    <a href="<?= $esc($kbUrl . $kbId) ?>">
+                                        <?= $esc((string)($row['kb_name'] ?? ('#' . $kbId))) ?>
+                                    </a>
+                                </td>
+                                <td><span class="badge <?= $badge ?>"><?= $esc($label) ?></span></td>
+                                <td>
+                                    <?php if ($docFileId !== ''): ?>
+                                        <a href="https://docs.google.com/document/d/<?= $esc(rawurlencode($docFileId)) ?>/edit" target="_blank" rel="noopener">Doc</a>
+                                    <?php else: ?>—<?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ($pdfFileId !== ''): ?>
+                                        <a href="https://drive.google.com/file/d/<?= $esc(rawurlencode($pdfFileId)) ?>/view" target="_blank" rel="noopener">PDF</a>
+                                    <?php else: ?>—<?php endif; ?>
+                                </td>
+                                <td><?= $attempts ?></td>
+                                <td class="small"><?= $esc($syncedAt !== '' ? $syncedAt : '—') ?></td>
+                                <td class="small text-danger" style="max-width:280px">
+                                    <?= $esc($rowError !== '' ? mb_substr($rowError, 0, 160) : '') ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                    <button type="submit" name="save_drive_sync" value="1" class="btn btn-primary btn-sm">
+                        <i class="ti ti-device-floppy me-1"></i><?= $esc(__('Salvar seleção', 'kbwizard')) ?>
+                    </button>
+                    <span class="form-hint mb-0">
+                        <?= $esc(__('Marque os artigos que devem ser espelhados no Drive. Desmarcar interrompe as atualizações, mas mantém o Doc/PDF já existentes.', 'kbwizard')) ?>
+                    </span>
+                </div>
+            </form>
             <div class="form-hint mt-2">
                 <?= $esc(__('Mostrando os 200 registros mais recentes. Links abrem o arquivo no Google Drive.', 'kbwizard')) ?>
             </div>
         <?php endif; ?>
 
         <div class="alert alert-secondary mt-3 mb-0 small">
-            <?= $esc(__('Como funciona: ao salvar um artigo (ou um passo manual), ele entra na fila. O cron gera/atualiza o Google Doc no mesmo fileId (o NotebookLM mantém a fonte) e exporta o PDF. A primeira sincronização completa pode levar alguns minutos.', 'kbwizard')) ?>
+            <?= $esc(__('Como funciona: só os artigos marcados com "Sincronizar com Google Drive" entram na fila. Ao marcar (ou salvar um artigo marcado), o cron gera/atualiza o Google Doc no mesmo fileId (o NotebookLM mantém a fonte) e exporta o PDF. Desmarcar interrompe as atualizações e mantém os arquivos no Drive. A primeira sincronização completa pode levar alguns minutos.', 'kbwizard')) ?>
         </div>
     </div>
 </div>

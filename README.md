@@ -8,7 +8,7 @@ Transforma qualquer artigo da **Base de Conhecimento** em um **guia guiado passo
 - Exibe o conteúdo em **modal guiado**: 1 passo por vez, com **barra de progresso**, **lista lateral**, navegação **Anterior/Próximo**, atalhos de teclado (← → / ESC) e botão **Concluir**.
 - Salva **progresso por usuário** (continuar de onde parou).
 - **Exportar PDF**: gera o artigo inteiro em PDF (HTML original preservado, apenas as linhas `---PASSO---` são removidas) com acentuação correta — ideal para anexar em ferramentas como o NotebookLM.
-- **Sincronização com Google Drive** (opcional): espelha **todos os artigos** em um Shared Drive como **Google Doc + PDF**, atualizando sozinho quando o artigo muda — o Google Doc é o que o NotebookLM sincroniza automaticamente.
+- **Sincronização com Google Drive** (opcional): espelha **os artigos marcados** em um Shared Drive como **Google Doc + PDF**, atualizando sozinho quando o artigo muda — o Google Doc é o que o NotebookLM sincroniza automaticamente.
 - Dois modos:
   - **Automático**: divide o campo `answer` do artigo automaticamente. Critérios: `<hr>` , `<h2>` , `<hr>` ou `<h2>` (padrão) ou marcador `---PASSO---`.
   - **Manual**: você cadastra passos com título + conteúdo rico (HTML) em ordem definida.
@@ -105,10 +105,11 @@ Nos dois modos de conta Google os arquivos ficam no **Meu Drive** da conta conec
 2. Criar um **Shared Drive** e adicionar o e-mail da service account como **Gerente de conteúdo**.
 3. Na tela do plugin, escolher **Service account**, enviar o JSON, informar o **ID do Shared Drive**
    (`drive.google.com/drive/folders/<ID>` — o ID do drive, não de uma pasta interna).
-4. **Testar conexão** → **Salvar** → **Sincronizar todos**.
+4. **Testar conexão** → **Salvar** → **Sincronizar artigos marcados**.
 
 ### Como funciona
-- Salvar um artigo (ou um passo manual) coloca o artigo na fila.
+- Marcar o artigo com **Sincronizar com Google Drive** (aba *Passo a Passo*) e salvar coloca o artigo na fila; artigos desmarcados são ignorados pelo cron e pelo **Processar fila agora**.
+- Na tela global, a coluna **Sincronizar** da tabela *Status por artigo* liga/desliga em lote com **Salvar seleção**; desmarcar interrompe as atualizações mas mantém o Doc/PDF já existente no Drive.
 - O cron gera/atualiza o Google Doc, gera o PDF e grava o estado.
 - Excluir o artigo em definitivo move Doc/PDF para a lixeira do Drive.
 - Falhas aparecem na tela de configuração; **Reprocessar erros** reenfileira os itens.

@@ -68,6 +68,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$knowbaseitems_id) {
         : (($CFG_GLPI['root_doc'] ?? '') . '/plugins/kbwizard');
     $redirect = $webDir . '/front/config.php';
 
+    // Ação em lote da tabela "Status por artigo": o formulário envia apenas a
+    // seleção, então não pode cair no salvamento das configurações globais.
+    if (isset($_POST['save_drive_sync'])) {
+        $rows    = array_map('intval', (array)($_POST['drive_sync_rows'] ?? []));
+        $checked = array_map('intval', (array)($_POST['drive_sync_kb'] ?? []));
+        $updated = 0;
+
+        foreach (array_unique($rows) as $kbId) {
+            if ($kbId <= 0) {
+                continue;
+            }
+            PluginKbwizardDriveSync::setEnabled($kbId, in_array($kbId, $checked, true));
+            $updated++;
+        }
+
+        if ($updated > 0) {
+            Session::addMessageAfterRedirect(
+                sprintf(__('Sincronização atualizada para %d artigo(s).', 'kbwizard'), $updated),
+                true,
+                INFO
+            );
+        } else {
+            Session::addMessageAfterRedirect(
+                __('Nenhum artigo na lista para atualizar.', 'kbwizard'),
+                true,
+                WARNING
+            );
+        }
+
+        Html::redirect($redirect);
+        exit;
+    }
+
     $current = PluginKbwizardDriveConfig::get();
     $authMode = (string)($_POST['auth_mode'] ?? 'oauth');
     $input = [
@@ -369,6 +402,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
         }
     }
 
+    // Garante coluna drive_sync existe (opt-in por artigo, 1.5.0)
+    if ($DB && $DB->tableExists('glpi_plugin_kbwizard_configs') && !$DB->fieldExists('glpi_plugin_kbwizard_configs', 'drive_sync')) {
+        try {
+            $DB->doQuery("ALTER TABLE `glpi_plugin_kbwizard_configs` ADD COLUMN `drive_sync` tinyint(1) NOT NULL DEFAULT 0");
+            if (class_exists('PluginKbwizardToolbox')) PluginKbwizardToolbox::log('drive_sync coluna criada on-the-fly em front/config.php');
+            else Toolbox::logInFile('kbwizard', 'drive_sync coluna criada on-the-fly em front/config.php');
+        } catch (Throwable $e) {
+            if (class_exists('PluginKbwizardToolbox')) PluginKbwizardToolbox::log('falha ao criar drive_sync: '.$e->getMessage());
+            else try { Toolbox::logInFile('kbwizard', 'falha ao criar drive_sync: '.$e->getMessage()); } catch(Throwable $e2){}
+        }
+    }
+
     // Títulos editáveis por passo (modo auto) — auto_titles[0], auto_titles[1] ...
     $autoTitlesRaw = $_POST['auto_titles'] ?? [];
     $autoTitlesJson = '';
@@ -386,6 +431,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
     }
 
     $hasAutoTitles = $DB && $DB->tableExists('glpi_plugin_kbwizard_configs') && $DB->fieldExists('glpi_plugin_kbwizard_configs', 'auto_titles');
+    $hasDriveSync = $DB && $DB->tableExists('glpi_plugin_kbwizard_configs') && $DB->fieldExists('glpi_plugin_kbwizard_configs', 'drive_sync');
     $input = [
         'knowbaseitems_id' => $knowbaseitems_id,
         'is_active' => (int)($_POST['is_active'] ?? 0),
@@ -402,6 +448,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $knowbaseitems_id) {
         $config->update($input);
     } else {
         $config->add($input);
+    }
+
+    if ($hasDriveSync && array_key_exists('drive_sync', $_POST)) {
+        try {
+            // setEnabled grava a coluna e cuida da fila (não re-sincroniza quem
+            // já estava marcado — só marca/desmarca de verdade).
+            PluginKbwizardDriveSync::setEnabled($knowbaseitems_id, !empty($_POST['drive_sync']));
+        } catch (Throwable $e) {
+            if (class_exists('PluginKbwizardToolbox')) {
+                PluginKbwizardToolbox::log('setEnabled após salvar config kb=' . $knowbaseitems_id . ': ' . $e->getMessage());
+            }
+        }
     }
 
     Session::addMessageAfterRedirect(__('Configuração salva!', 'kbwizard'), true, INFO);

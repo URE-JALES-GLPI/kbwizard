@@ -10,7 +10,7 @@ if (is_file(__DIR__ . '/inc/toolbox.class.php')) {
 }
 
 if (!defined('PLUGIN_KBWIZARD_VERSION')) {
-    define('PLUGIN_KBWIZARD_VERSION', '1.4.0');
+    define('PLUGIN_KBWIZARD_VERSION', '1.5.0');
 }
 if (!defined('PLUGIN_KBWIZARD_MIN_GLPI')) {
     define('PLUGIN_KBWIZARD_MIN_GLPI', '11.0.0');
@@ -107,6 +107,7 @@ function plugin_init_kbwizard() {
                         `allow_jump` tinyint(1) NOT NULL DEFAULT 1,
                         `require_sequential` tinyint(1) NOT NULL DEFAULT 0,
                         `auto_titles` text,
+                        `drive_sync` tinyint(1) NOT NULL DEFAULT 0,
                         `date_creation` timestamp NULL DEFAULT NULL,
                         `date_mod` timestamp NULL DEFAULT NULL,
                         PRIMARY KEY (`id`),
@@ -125,6 +126,9 @@ function plugin_init_kbwizard() {
                 }
                 if (!$db->fieldExists($cfgTable, 'auto_titles')) {
                     try { $db->doQuery("ALTER TABLE `$cfgTable` ADD COLUMN `auto_titles` text"); } catch (Throwable $e) {}
+                }
+                if (!$db->fieldExists($cfgTable, 'drive_sync')) {
+                    try { $db->doQuery("ALTER TABLE `$cfgTable` ADD COLUMN `drive_sync` tinyint(1) NOT NULL DEFAULT 0"); } catch (Throwable $e) {}
                 }
                 if (!$db->indexExists($cfgTable, 'knowbaseitems_id')) {
                     try { $db->doQuery("ALTER TABLE `$cfgTable` ADD UNIQUE KEY `knowbaseitems_id` (`knowbaseitems_id`)"); } catch (Throwable $e) {}

@@ -14,11 +14,13 @@ if (!defined('GLPI_ROOT')) {
 class PluginKbwizardDriveSync
 {
     public const TABLE = 'glpi_plugin_kbwizard_drive_files';
+    public const CONFIG_TABLE = 'glpi_plugin_kbwizard_configs';
 
     public const STATUS_PENDING = 'pending';
     public const STATUS_SYNCED  = 'synced';
     public const STATUS_ERROR   = 'error';
     public const STATUS_SKIPPED = 'skipped';
+    public const STATUS_DISABLED = 'disabled';
 
     private const MAX_ATTEMPTS = 3;
     private const BATCH_SIZE   = 5;
@@ -30,11 +32,135 @@ class PluginKbwizardDriveSync
     }
 
     /**
+     * A coluna drive_sync só existe depois da migração 1.5.0.
+     */
+    private static function configTableReady(): bool
+    {
+        global $DB;
+        if (!$DB || !$DB->tableExists(self::CONFIG_TABLE)) {
+            return false;
+        }
+        try {
+            return (bool)$DB->fieldExists(self::CONFIG_TABLE, 'drive_sync');
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * O artigo foi marcado para sincronizar com o Drive?
+     * Sem a coluna (instalação antiga), o padrão é não sincronizar (opt-in).
+     */
+    public static function isEnabled(int $kbId): bool
+    {
+        if ($kbId <= 0 || !self::configTableReady()) {
+            return false;
+        }
+        global $DB;
+        try {
+            foreach ($DB->request([
+                'SELECT' => ['drive_sync'],
+                'FROM'   => self::CONFIG_TABLE,
+                'WHERE'  => ['knowbaseitems_id' => $kbId],
+                'LIMIT'  => 1,
+            ]) as $row) {
+                return !empty($row['drive_sync']);
+            }
+        } catch (Throwable $e) {
+            return false;
+        }
+        return false;
+    }
+
+    /**
+     * Liga/desliga a sincronização de um artigo.
+     *
+     * Desligar interrompe as atualizações mas preserva o Doc/PDF e os fileId
+     * já gravados — remarcar retoma no mesmo arquivo, sem duplicar no Drive.
+     */
+    public static function setEnabled(int $kbId, bool $enabled): void
+    {
+        if ($kbId <= 0 || !self::configTableReady()) {
+            return;
+        }
+        global $DB;
+        $now = date('Y-m-d H:i:s');
+
+        try {
+            $configId = 0;
+            $wasEnabled = false;
+            foreach ($DB->request([
+                'SELECT' => ['id', 'drive_sync'],
+                'FROM'   => self::CONFIG_TABLE,
+                'WHERE'  => ['knowbaseitems_id' => $kbId],
+                'LIMIT'  => 1,
+            ]) as $row) {
+                $configId   = (int)($row['id'] ?? 0);
+                $wasEnabled = !empty($row['drive_sync']);
+            }
+
+            if ($configId > 0) {
+                $DB->update(self::CONFIG_TABLE, [
+                    'drive_sync' => $enabled ? 1 : 0,
+                    'date_mod'   => $now,
+                ], ['id' => $configId]);
+            } elseif ($enabled) {
+                $DB->insert(self::CONFIG_TABLE, [
+                    'knowbaseitems_id'   => $kbId,
+                    'is_active'          => 0,
+                    'split_mode'         => 'auto',
+                    'auto_delimiter'     => 'marker',
+                    'show_progress'      => 1,
+                    'allow_jump'         => 1,
+                    'require_sequential' => 0,
+                    'auto_titles'        => '',
+                    'drive_sync'         => 1,
+                    'date_creation'      => $now,
+                    'date_mod'           => $now,
+                ]);
+            }
+
+            if ($enabled) {
+                // Só enfileira na transição (ou se nunca houve estado). Salvar a
+                // seleção com o artigo já marcado não pode re-sincronizar tudo.
+                $state = self::getState($kbId);
+                $stateStatus = (string)($state['status'] ?? '');
+                if (!$wasEnabled || $state === null || $stateStatus === self::STATUS_DISABLED) {
+                    self::markDirty($kbId, 'habilitado para sincronização');
+                }
+                return;
+            }
+
+            if (!$wasEnabled) {
+                // Já estava desligado: preserva erro/status anterior.
+                return;
+            }
+
+            if (self::getState($kbId) !== null) {
+                self::setStateValues($kbId, [
+                    'status'     => self::STATUS_DISABLED,
+                    'attempts'   => 0,
+                    'last_error' => __('Sincronização desativada neste artigo.', 'kbwizard'),
+                ]);
+            }
+        } catch (Throwable $e) {
+            if (class_exists('PluginKbwizardToolbox')) {
+                PluginKbwizardToolbox::log('setEnabled falhou kb=' . $kbId . ': ' . $e->getMessage());
+            }
+        }
+    }
+
+    /**
      * Marca um artigo como pendente de sincronização.
      */
     public static function markDirty(int $kbId, string $reason = ''): void
     {
         if ($kbId <= 0 || !self::tableExists()) {
+            return;
+        }
+        if (!self::isEnabled($kbId)) {
+            // Opt-in: artigo não marcado não entra na fila (silencioso, senão
+            // cada salvamento de artigo gera ruído no log).
             return;
         }
         global $DB;
@@ -167,6 +293,17 @@ class PluginKbwizardDriveSync
         $budget    = max(5, $timeBudget);
 
         foreach ($ids as $kbId) {
+            if (!self::isEnabled((int)$kbId)) {
+                // Auto-reparo: uma linha pendente de antes do opt-in não deve
+                // ser processada nem continuar contando na fila.
+                self::setStateValues((int)$kbId, [
+                    'status'     => self::STATUS_DISABLED,
+                    'attempts'   => 0,
+                    'last_error' => __('Sincronização desativada neste artigo.', 'kbwizard'),
+                ]);
+                continue;
+            }
+
             if ($result['processed'] > 0 && (microtime(true) - $startedAt) >= $budget) {
                 $result['timed_out'] = true;
                 break;
@@ -251,6 +388,15 @@ class PluginKbwizardDriveSync
         if (!empty($kb->fields['is_deleted'])) {
             self::setStateValues($kbId, ['status' => self::STATUS_SKIPPED, 'last_error' => __('Artigo na lixeira.', 'kbwizard')]);
             return ['status' => 'skipped', 'message' => __('Artigo na lixeira.', 'kbwizard')];
+        }
+
+        if (!self::isEnabled($kbId)) {
+            self::setStateValues($kbId, [
+                'status'     => self::STATUS_DISABLED,
+                'attempts'   => 0,
+                'last_error' => __('Sincronização desativada neste artigo.', 'kbwizard'),
+            ]);
+            return ['status' => 'disabled', 'message' => __('Sincronização desativada neste artigo.', 'kbwizard')];
         }
 
         $state = self::getState($kbId);
@@ -427,6 +573,10 @@ class PluginKbwizardDriveSync
             self::reportQueueProblem(__('A tabela da fila não existe.', 'kbwizard'));
             return 0;
         }
+        if (!self::configTableReady()) {
+            self::reportQueueProblem(__('A coluna de sincronização por artigo não existe. Atualize/reinstale o plugin.', 'kbwizard'));
+            return 0;
+        }
 
         global $DB;
         $ids = [];
@@ -446,6 +596,29 @@ class PluginKbwizardDriveSync
 
         if ($ids === []) {
             self::reportQueueProblem(__('A Base de Conhecimento não tem artigos ativos.', 'kbwizard'));
+            return 0;
+        }
+
+        // "Sincronizar todos" respeita o opt-in: só entram os artigos marcados.
+        $enabled = [];
+        try {
+            foreach ($DB->request([
+                'SELECT' => ['knowbaseitems_id'],
+                'FROM'   => self::CONFIG_TABLE,
+                'WHERE'  => ['drive_sync' => 1],
+            ]) as $row) {
+                $enabled[(int)($row['knowbaseitems_id'] ?? 0)] = true;
+            }
+        } catch (Throwable $e) {
+            $enabled = [];
+        }
+
+        $ids = array_values(array_filter($ids, static function (int $id) use ($enabled): bool {
+            return isset($enabled[$id]);
+        }));
+
+        if ($ids === []) {
+            self::reportQueueProblem(__('Nenhum artigo marcado para sincronização com o Google Drive.', 'kbwizard'));
             return 0;
         }
 
@@ -618,17 +791,17 @@ class PluginKbwizardDriveSync
     }
 
     /**
-     * @return array{pending:int,synced:int,error:int,skipped:int,total:int}
+     * @return array{pending:int,synced:int,error:int,skipped:int,disabled:int,total:int}
      */
     public static function stats(): array
     {
-        $stats = ['pending' => 0, 'synced' => 0, 'error' => 0, 'skipped' => 0, 'total' => 0];
+        $stats = ['pending' => 0, 'synced' => 0, 'error' => 0, 'skipped' => 0, 'disabled' => 0, 'total' => 0];
         if (!self::tableExists()) {
             return $stats;
         }
         global $DB;
         try {
-            foreach (['pending', 'synced', 'error', 'skipped'] as $status) {
+            foreach (['pending', 'synced', 'error', 'skipped', 'disabled'] as $status) {
                 $count = 0;
                 foreach ($DB->request([
                     'SELECT' => ['COUNT' => 'id'],
@@ -683,6 +856,28 @@ class PluginKbwizardDriveSync
             }
         } catch (Throwable $e) {
             return [];
+        }
+
+        // Coluna da tabela "Status por artigo": só os marcados sincronizam.
+        if ($rows !== []) {
+            $enabled = [];
+            try {
+                if (self::configTableReady()) {
+                    foreach ($DB->request([
+                        'SELECT' => ['knowbaseitems_id'],
+                        'FROM'   => self::CONFIG_TABLE,
+                        'WHERE'  => ['drive_sync' => 1],
+                    ]) as $row) {
+                        $enabled[(int)($row['knowbaseitems_id'] ?? 0)] = true;
+                    }
+                }
+            } catch (Throwable $e) {
+                $enabled = [];
+            }
+            foreach ($rows as &$row) {
+                $row['drive_sync'] = isset($enabled[(int)($row['knowbaseitems_id'] ?? 0)]) ? 1 : 0;
+            }
+            unset($row);
         }
 
         return $rows;

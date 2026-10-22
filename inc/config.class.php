@@ -72,7 +72,8 @@ trait PluginKbwizardConfigBody {
                     'show_progress' => 1,
                     'allow_jump' => 1,
                     'require_sequential' => 0,
-                    'auto_titles' => ''
+                    'auto_titles' => '',
+                    'drive_sync' => 0
                 ];
             }
             self::showConfigForm($item, $config);
@@ -98,6 +99,7 @@ trait PluginKbwizardConfigBody {
         $showProgress = (int)($config->fields['show_progress'] ?? 1);
         $allowJump = (int)($config->fields['allow_jump'] ?? 1);
         $requireSeq = (int)($config->fields['require_sequential'] ?? 0);
+        $driveSync = (int)($config->fields['drive_sync'] ?? 0);
         $autoTitlesRaw = $config->fields['auto_titles'] ?? '';
         $autoTitles = [];
         if (!empty($autoTitlesRaw)) {
@@ -145,6 +147,16 @@ trait PluginKbwizardConfigBody {
         echo "<span class='form-check-label'>".__('Ativar modo Passo a Passo neste artigo', 'kbwizard')."</span>";
         echo "</label>";
         echo "<small class='form-hint'>".__('Quando ativo, o leitor verá o botão “Iniciar Passo a Passo” no topo do artigo.', 'kbwizard')."</small>";
+        echo "</div>";
+
+        // Sincronizar com Google Drive (opt-in por artigo)
+        echo "<div class='col-md-3'>";
+        echo "<label class='form-check form-switch'>";
+        echo "<input type='hidden' name='drive_sync' value='0'>";
+        echo "<input class='form-check-input' type='checkbox' name='drive_sync' value='1' ".($driveSync ? 'checked' : '').">";
+        echo "<span class='form-check-label'><i class='ti ti-brand-google-drive me-1'></i>".__('Sincronizar com Google Drive', 'kbwizard')."</span>";
+        echo "</label>";
+        echo "<small class='form-hint'>".__('Se desmarcado, este artigo nunca entra na fila nem é atualizado no Drive.', 'kbwizard')."</small>";
         echo "</div>";
 
         // Mostrar progresso
