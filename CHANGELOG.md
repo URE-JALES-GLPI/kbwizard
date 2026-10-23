@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.2 - 2026-10-23 Filtros na tabela de status
+- **UI**: a tabela **Status por artigo** ganhou filtros por sincronização, status, Doc, PDF e busca por nome do artigo, com contador de resultados, botão **Limpar filtros** e estado vazio
+- **Comportamento**: o filtro é aplicado no navegador sobre os 200 registros já carregados; as linhas ocultas continuam no formulário, então **Salvar seleção** preserva o estado dos checkboxes
+- **Fallback**: os controles de filtro só aparecem quando o JavaScript está ativo; sem JS a tabela continua como antes
+- **Compat**: `setup.php`/`composer.json` em `1.5.2`; nenhuma migração de banco
+
 ## 1.5.1 - 2026-10-22 Processamento da fila com progresso (sem recarregar)
 - **UI**: **Processar fila agora** deixou de recarregar a página a cada lote: o botão dispara um loop AJAX que processa 10 artigos / 20s por vez e mostra barra de progresso, contadores de sincronizados/erros/ignorados/restantes, botão de cancelar e resumo final
 - **Aviso**: enquanto o loop roda, a tela mostra **“Não feche esta aba durante o processamento”** e o navegador pede confirmação ao tentar sair/atualizar; fechar a aba interrompe o processamento e mantém o restante na fila

@@ -467,6 +467,12 @@ $csrfToken = (defined('GLPI_VERSION') && version_compare(GLPI_VERSION, '12.0', '
             <h4 class="mt-4 mb-2"><?= $esc(__('Status por artigo', 'kbwizard')) ?></h4>
             <form method="post" action="<?= $esc($driveActionUrl) ?>" data-submit-once>
                 <input type="hidden" name="_glpi_csrf_token" value="<?= $esc($csrfToken) ?>" />
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2 d-none" data-kbw-filter-ui>
+                    <span class="small text-muted" data-kbw-filter-count aria-live="polite"></span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-kbw-filter-clear>
+                        <i class="ti ti-filter-off me-1"></i><?= $esc(__('Limpar filtros', 'kbwizard')) ?>
+                    </button>
+                </div>
                 <div class="table-responsive" style="max-height:420px;overflow:auto">
                     <table class="table table-sm table-hover align-middle mb-0">
                         <thead class="table-light" style="position:sticky;top:0;z-index:1">
@@ -480,16 +486,59 @@ $csrfToken = (defined('GLPI_VERSION') && version_compare(GLPI_VERSION, '12.0', '
                                 <th><?= $esc(__('Última sincronização', 'kbwizard')) ?></th>
                                 <th><?= $esc(__('Erro', 'kbwizard')) ?></th>
                             </tr>
+                            <tr class="d-none" data-kbw-filter-ui>
+                                <th>
+                                    <select class="form-select form-select-sm" data-kbw-filter="sync" aria-label="<?= $esc(__('Filtrar por sincronização', 'kbwizard')) ?>">
+                                        <option value=""><?= $esc(__('Todos', 'kbwizard')) ?></option>
+                                        <option value="1"><?= $esc(__('Sim', 'kbwizard')) ?></option>
+                                        <option value="0"><?= $esc(__('Não', 'kbwizard')) ?></option>
+                                    </select>
+                                </th>
+                                <th>
+                                    <input type="search" class="form-control form-control-sm" data-kbw-filter="search" placeholder="<?= $esc(__('Buscar artigo...', 'kbwizard')) ?>" aria-label="<?= $esc(__('Buscar artigo', 'kbwizard')) ?>" autocomplete="off">
+                                </th>
+                                <th>
+                                    <select class="form-select form-select-sm" data-kbw-filter="status" aria-label="<?= $esc(__('Filtrar por status', 'kbwizard')) ?>">
+                                        <option value=""><?= $esc(__('Todos', 'kbwizard')) ?></option>
+                                        <option value="pending"><?= $esc(__('Pendente', 'kbwizard')) ?></option>
+                                        <option value="synced"><?= $esc(__('Sincronizado', 'kbwizard')) ?></option>
+                                        <option value="error"><?= $esc(__('Erro', 'kbwizard')) ?></option>
+                                        <option value="skipped"><?= $esc(__('Ignorado', 'kbwizard')) ?></option>
+                                        <option value="disabled"><?= $esc(__('Sem sincronização', 'kbwizard')) ?></option>
+                                    </select>
+                                </th>
+                                <th>
+                                    <select class="form-select form-select-sm" data-kbw-filter="doc" aria-label="<?= $esc(__('Filtrar por Doc', 'kbwizard')) ?>">
+                                        <option value=""><?= $esc(__('Todos', 'kbwizard')) ?></option>
+                                        <option value="1"><?= $esc(__('Com Doc', 'kbwizard')) ?></option>
+                                        <option value="0"><?= $esc(__('Sem Doc', 'kbwizard')) ?></option>
+                                    </select>
+                                </th>
+                                <th>
+                                    <select class="form-select form-select-sm" data-kbw-filter="pdf" aria-label="<?= $esc(__('Filtrar por PDF', 'kbwizard')) ?>">
+                                        <option value=""><?= $esc(__('Todos', 'kbwizard')) ?></option>
+                                        <option value="1"><?= $esc(__('Com PDF', 'kbwizard')) ?></option>
+                                        <option value="0"><?= $esc(__('Sem PDF', 'kbwizard')) ?></option>
+                                    </select>
+                                </th>
+                                <th></th>
+                                <th></th>
+                                <th></th>
+                            </tr>
                         </thead>
                         <tbody>
                         <?php foreach ($overview as $row):
-                            $status     = (string)($row['status'] ?? '');
-                            $kbId       = (int)($row['knowbaseitems_id'] ?? 0);
-                            $docFileId  = (string)($row['doc_file_id'] ?? '');
-                            $pdfFileId  = (string)($row['pdf_file_id'] ?? '');
-                            $rowError   = trim((string)($row['last_error'] ?? ''));
-                            $syncedAt   = (string)($row['date_sync'] ?? '');
-                            $attempts   = (int)($row['attempts'] ?? 0);
+                            $status       = (string)($row['status'] ?? '');
+                            $kbId         = (int)($row['knowbaseitems_id'] ?? 0);
+                            $kbName       = (string)($row['kb_name'] ?? ('#' . $kbId));
+                            $docFileId    = (string)($row['doc_file_id'] ?? '');
+                            $pdfFileId    = (string)($row['pdf_file_id'] ?? '');
+                            $rowError     = trim((string)($row['last_error'] ?? ''));
+                            $syncedAt     = (string)($row['date_sync'] ?? '');
+                            $attempts     = (int)($row['attempts'] ?? 0);
+                            $filterStatus = in_array($status, ['pending', 'synced', 'error', 'skipped', 'disabled'], true)
+                                ? $status
+                                : 'pending';
                             if ($status === 'synced') {
                                 $label = __('sincronizado', 'kbwizard');
                                 $badge = 'bg-success';
@@ -507,14 +556,19 @@ $csrfToken = (defined('GLPI_VERSION') && version_compare(GLPI_VERSION, '12.0', '
                                 $badge = 'bg-warning text-dark';
                             }
                         ?>
-                            <tr>
+                            <tr data-kbw-row="1"
+                                data-kbw-name="<?= $esc($kbName) ?>"
+                                data-kbw-sync="<?= !empty($row['drive_sync']) ? '1' : '0' ?>"
+                                data-kbw-status="<?= $esc($filterStatus) ?>"
+                                data-kbw-doc="<?= $docFileId !== '' ? '1' : '0' ?>"
+                                data-kbw-pdf="<?= $pdfFileId !== '' ? '1' : '0' ?>">
                                 <td class="text-center">
                                     <input type="hidden" name="drive_sync_rows[]" value="<?= $kbId ?>">
                                     <input class="form-check-input" type="checkbox" name="drive_sync_kb[]" value="<?= $kbId ?>" <?= !empty($row['drive_sync']) ? 'checked' : '' ?> aria-label="<?= $esc(__('Sincronizar este artigo', 'kbwizard')) ?>">
                                 </td>
                                 <td>
                                     <a href="<?= $esc($kbUrl . $kbId) ?>">
-                                        <?= $esc((string)($row['kb_name'] ?? ('#' . $kbId))) ?>
+                                        <?= $esc($kbName) ?>
                                     </a>
                                 </td>
                                 <td><span class="badge <?= $badge ?>"><?= $esc($label) ?></span></td>
@@ -535,6 +589,11 @@ $csrfToken = (defined('GLPI_VERSION') && version_compare(GLPI_VERSION, '12.0', '
                                 </td>
                             </tr>
                         <?php endforeach; ?>
+                        <tr class="d-none" data-kbw-empty>
+                            <td colspan="8" class="text-center text-muted py-3">
+                                <?= $esc(__('Nenhum artigo corresponde aos filtros.', 'kbwizard')) ?>
+                            </td>
+                        </tr>
                         </tbody>
                     </table>
                 </div>
@@ -558,3 +617,4 @@ $csrfToken = (defined('GLPI_VERSION') && version_compare(GLPI_VERSION, '12.0', '
     </div>
 </div>
 <script src="<?= $esc($driveWebDir . '/public/js/drivequeue.js?v=' . PLUGIN_KBWIZARD_VERSION) ?>" defer></script>
+<script src="<?= $esc($driveWebDir . '/public/js/drivefilters.js?v=' . PLUGIN_KBWIZARD_VERSION) ?>" defer></script>
